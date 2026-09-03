@@ -1,2 +1,3 @@
-import { PlaceholderPage } from "@/components/placeholder-page";
-export default function TemplatesPage() { return <PlaceholderPage title="Templates / 格式範本" description="Reusable school formatting profiles will live here." />; }
+import TemplatesPage from "@/features/templates/page";
+import { getSession } from "@/lib/auth/session";
+export default async function TemplatesRoute() { const session = await getSession(); if (!session) return null; return <TemplatesPage token={session.token} />; }
