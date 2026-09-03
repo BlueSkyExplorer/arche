@@ -1,0 +1,1 @@
+"""OOXML helper placeholder."""
