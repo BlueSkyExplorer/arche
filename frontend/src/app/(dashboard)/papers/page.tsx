@@ -1,2 +1,3 @@
-import { PlaceholderPage } from "@/components/placeholder-page";
-export default function PapersPage() { return <PlaceholderPage title="Papers / 試卷" description="Paper assembly and export tools will live here." />; }
+import PapersPage from "@/features/papers/page";
+import { getSession } from "@/lib/auth/session";
+export default async function PapersRoute() { const session = await getSession(); if (!session) return null; return <PapersPage token={session.token} />; }

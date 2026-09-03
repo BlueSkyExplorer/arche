@@ -19,3 +19,15 @@ export async function apiFetch<T>(path: string, token: string, init: RequestInit
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
+
+export async function apiDownload(path: string, token: string): Promise<Blob> {
+  const response = await fetch(new URL(path, API_BASE_URL), {
+    headers: { Accept: "application/octet-stream", Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    let detail = `Request failed with status ${response.status}.`;
+    try { const body: unknown = await response.json(); if (typeof body === "object" && body !== null && "detail" in body && typeof body.detail === "string") detail = body.detail; } catch { /* Keep fallback. */ }
+    throw new ApiError(response.status, { detail });
+  }
+  return response.blob();
+}
