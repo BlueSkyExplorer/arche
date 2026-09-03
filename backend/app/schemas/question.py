@@ -1,14 +1,12 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
+from app.schemas.content import DocNode
 
-class QuestionContent(BaseModel):
-    type: Literal["doc"] = "doc"
-    content: list[dict[str, Any]] = Field(default_factory=list)
+QuestionContent = DocNode
 
 
 class QuestionRead(BaseModel):
@@ -21,7 +19,7 @@ class QuestionRead(BaseModel):
     level: str
     tags_json: list[str]
     source_note: str | None
-    content_json: dict[str, Any]
+    content_json: DocNode
     marks: Decimal
     status: str
     created_at: datetime

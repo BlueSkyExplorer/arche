@@ -8,6 +8,7 @@ dependencies = [
     "fastapi[standard]>=0.116,<1",
     "psycopg[binary]>=3.2,<4",
     "pydantic-settings>=2.10,<3",
+    "python-docx>=1.2,<2",
     "sqlalchemy>=2.0,<3",
 ]
 
@@ -46,3 +47,7 @@ warn_unused_ignores = true
 no_implicit_optional = true
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+module = ["docx", "docx.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
