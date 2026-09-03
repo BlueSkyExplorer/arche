@@ -44,6 +44,83 @@ def test_editor_camel_case_attrs_parse_exactly() -> None:
     assert image.attrs.alt is None
 
 
+def test_tiptap_link_attrs_are_accepted() -> None:
+    content = parse_content(
+        {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "OpenAI",
+                            "marks": [
+                                {
+                                    "type": "link",
+                                    "attrs": {
+                                        "href": "https://openai.com",
+                                        "target": "_blank",
+                                        "rel": "noopener noreferrer",
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    assert content.content[0].content[0].marks[0].attrs.rel == "noopener noreferrer"  # type: ignore[union-attr]
+
+
+def test_list_item_must_start_with_paragraph() -> None:
+    with pytest.raises(ValidationError, match="listItem content must start with a paragraph"):
+        parse_content(
+            {
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "bulletList",
+                        "content": [
+                            {
+                                "type": "listItem",
+                                "content": [
+                                    {
+                                        "type": "image",
+                                        "attrs": {
+                                            "assetId": "11111111-1111-1111-1111-111111111111"
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
+def test_list_item_starting_with_paragraph_is_accepted() -> None:
+    parse_content(
+        {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "bulletList",
+                    "content": [{"type": "listItem", "content": [{"type": "paragraph"}]}],
+                }
+            ],
+        }
+    )
+
+
+@pytest.mark.parametrize("attrs", [{"lines": 0}, {"blankHeightMm": 0}])
+def test_answer_space_dimensions_must_be_positive(attrs: object) -> None:
+    with pytest.raises(ValidationError):
+        parse_content({"type": "doc", "content": [{"type": "answerSpace", "attrs": attrs}]})
+
+
 def test_nested_table_in_table_cell_is_rejected() -> None:
     nested = {
         "type": "table",

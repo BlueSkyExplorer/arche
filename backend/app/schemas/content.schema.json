@@ -6,7 +6,7 @@
         "lines": {
           "anyOf": [
             {
-              "minimum": 0,
+              "minimum": 1,
               "type": "integer"
             },
             {
@@ -19,7 +19,7 @@
         "blankHeightMm": {
           "anyOf": [
             {
-              "minimum": 0,
+              "minimum": 1,
               "type": "number"
             },
             {
@@ -278,10 +278,6 @@
         "target": {
           "anyOf": [
             {
-              "enum": [
-                "_blank",
-                "_self"
-              ],
               "type": "string"
             },
             {
@@ -290,6 +286,18 @@
           ],
           "default": null,
           "title": "Target"
+        },
+        "rel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rel"
         }
       },
       "required": [
@@ -463,14 +471,19 @@
       "additionalProperties": false,
       "properties": {
         "label": {
-          "minLength": 1,
-          "title": "Label",
-          "type": "string"
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
         }
       },
-      "required": [
-        "label"
-      ],
       "title": "SubQuestionAttrs",
       "type": "object"
     },
@@ -534,7 +547,6 @@
       },
       "required": [
         "type",
-        "attrs",
         "content"
       ],
       "title": "SubQuestionNode",

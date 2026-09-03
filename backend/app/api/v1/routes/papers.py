@@ -36,15 +36,6 @@ def detail(db: Session, paper: object) -> PaperDetail:
     base = PaperRead.model_validate(paper).model_dump()
     template = papers.get_template_for_paper(db, paper)  # type: ignore[arg-type]
     style = template.numbering_config_json.get("question_style", "1.")
-    style_map = {
-        "1": "arabic-dot",
-        "1.": "arabic-dot",
-        "(1)": "arabic-dot",
-        "arabic-dot": "arabic-dot",
-        "lower-alpha": "lower-alpha",
-        "upper-alpha": "upper-alpha",
-        "roman": "roman",
-    }
     numbered = number_questions(
         [
             SectionForNumbering(
@@ -61,7 +52,7 @@ def detail(db: Session, paper: object) -> PaperDetail:
             )
             for section, pairs in tree
         ],
-        NumberingConfig(question_style=style_map[style]),  # type: ignore[arg-type]
+        NumberingConfig(question_style=style),
     )
     labels = {item.question.question_id: item.label for item in numbered}
     sections = [
