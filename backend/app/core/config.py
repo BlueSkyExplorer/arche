@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     export_max_pdf_timeout_s: int = Field(
         default=120, ge=1, validation_alias="EXPORT_MAX_PDF_TIMEOUT_S"
     )
+    cors_allow_origins: list[str] = Field(
+        default=["http://localhost:3000"],
+        validation_alias="CORS_ALLOW_ORIGINS",
+    )
 
 
 @lru_cache
