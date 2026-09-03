@@ -62,5 +62,5 @@ def test_question_and_template_are_isolated_via_api(db_session: Session) -> None
     finally:
         app.dependency_overrides.clear()
 
-    assert question_response.status_code == 403
-    assert template_response.status_code == 403
+    assert question_response.status_code == 404
+    assert template_response.status_code == 404

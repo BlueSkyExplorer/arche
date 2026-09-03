@@ -14,6 +14,7 @@ class Asset(Base):
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), index=True)
     kind: Mapped[str] = mapped_column(String(50))
     storage_key: Mapped[str] = mapped_column(String(1024), unique=True)
+    original_filename: Mapped[str] = mapped_column(String(255))
     mime_type: Mapped[str] = mapped_column(String(255))
     size_bytes: Mapped[int] = mapped_column(BigInteger)
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)

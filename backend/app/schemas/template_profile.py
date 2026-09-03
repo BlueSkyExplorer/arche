@@ -97,3 +97,24 @@ class TemplateProfileRead(TemplateProfileConfig):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class TemplateProfileCreate(TemplateProfileConfig):
+    name: str = Field(min_length=1, max_length=255)
+    school_name: str = Field(min_length=1, max_length=255)
+    logo_asset_id: UUID | None = None
+    is_active: bool = True
+
+
+class TemplateProfilePatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    school_name: str | None = Field(default=None, min_length=1, max_length=255)
+    logo_asset_id: UUID | None = None
+    page_config_json: PageConfig | None = None
+    typography_config_json: TypographyConfig | None = None
+    header_config_json: TextConfig | None = None
+    footer_config_json: FooterConfig | None = None
+    numbering_config_json: NumberingConfig | None = None
+    section_style_config_json: BlockStyleConfig | None = None
+    question_style_config_json: QuestionStyleConfig | None = None
+    is_active: bool | None = None

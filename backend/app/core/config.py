@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
@@ -15,6 +16,14 @@ class Settings(BaseSettings):
     app_env: str = Field(default="development", validation_alias="APP_ENV")
     auth_mode: Literal["stub"] = Field(default="stub", validation_alias="AUTH_MODE")
     stub_auth_email: str = Field(default="demo@example.com", validation_alias="STUB_AUTH_EMAIL")
+    storage_local_dir: Path = Field(default=Path(".storage"), validation_alias="STORAGE_LOCAL_DIR")
+    libreoffice_bin: str = Field(
+        default="/Applications/LibreOffice.app/Contents/MacOS/soffice",
+        validation_alias="LIBREOFFICE_BIN",
+    )
+    export_max_pdf_timeout_s: int = Field(
+        default=120, ge=1, validation_alias="EXPORT_MAX_PDF_TIMEOUT_S"
+    )
 
 
 @lru_cache
