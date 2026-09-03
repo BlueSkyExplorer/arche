@@ -1,0 +1,38 @@
+{
+  "type": "doc",
+  "content": [
+    {"type": "paragraph", "content": [
+      {"type": "text", "text": "保留原文 Keep wording: "},
+      {"type": "text", "text": "粗體", "marks": [{"type": "bold"}]},
+      {"type": "text", "text": " italic", "marks": [{"type": "italic"}]},
+      {"type": "text", "text": " underline", "marks": [{"type": "underline"}]}
+    ]},
+    {"type": "subQuestion", "attrs": {"label": "(a)"}, "content": [
+      {"type": "paragraph", "content": [{"type": "text", "text": "第一小題"}]}
+    ]},
+    {"type": "subQuestion", "attrs": {"label": "(b)"}, "content": [
+      {"type": "paragraph", "content": [{"type": "text", "text": "Second part"}]}
+    ]},
+    {"type": "subQuestion", "attrs": {"label": "(c)"}, "content": [
+      {"type": "paragraph", "content": [{"type": "text", "text": "第三小題"}]}
+    ]},
+    {"type": "orderedList", "attrs": {"start": 2}, "content": [
+      {"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Ordered item"}]}]}
+    ]},
+    {"type": "bulletList", "content": [
+      {"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Bullet item"}]}]}
+    ]},
+    {"type": "table", "content": [
+      {"type": "tableRow", "content": [
+        {"type": "tableCell", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "甲"}]}]},
+        {"type": "tableCell", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "A"}]}]}
+      ]},
+      {"type": "tableRow", "content": [
+        {"type": "tableCell", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "乙"}]}]},
+        {"type": "tableCell", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "B"}]}]}
+      ]}
+    ]},
+    {"type": "image", "attrs": {"asset_id": "11111111-1111-1111-1111-111111111111", "alt": "one pixel"}},
+    {"type": "answerSpace", "attrs": {"lines": 2}}
+  ]
+}

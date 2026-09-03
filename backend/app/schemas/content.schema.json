@@ -1,0 +1,792 @@
+{
+  "$defs": {
+    "AnswerSpaceAttrs": {
+      "additionalProperties": false,
+      "properties": {
+        "lines": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lines"
+        },
+        "blankHeightMm": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blankheightmm"
+        }
+      },
+      "title": "AnswerSpaceAttrs",
+      "type": "object"
+    },
+    "AnswerSpaceNode": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "answerSpace",
+          "title": "Type",
+          "type": "string"
+        },
+        "attrs": {
+          "$ref": "#/$defs/AnswerSpaceAttrs"
+        }
+      },
+      "required": [
+        "type",
+        "attrs"
+      ],
+      "title": "AnswerSpaceNode",
+      "type": "object"
+    },
+    "BoldMark": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "bold",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "BoldMark",
+      "type": "object"
+    },
+    "BulletListNode": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "bulletList",
+          "title": "Type",
+          "type": "string"
+        },
+        "content": {
+          "items": {
+            "$ref": "#/$defs/ListItemNode"
+          },
+          "minItems": 1,
+          "title": "Content",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "content"
+      ],
+      "title": "BulletListNode",
+      "type": "object"
+    },
+    "HardBreakNode": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "hardBreak",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "HardBreakNode",
+      "type": "object"
+    },
+    "HeadingAttrs": {
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "enum": [
+            1,
+            2,
+            3
+          ],
+          "title": "Level",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "level"
+      ],
+      "title": "HeadingAttrs",
+      "type": "object"
+    },
+    "HeadingNode": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "heading",
+          "title": "Type",
+          "type": "string"
+        },
+        "attrs": {
+          "$ref": "#/$defs/HeadingAttrs"
+        },
+        "content": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "hardBreak": "#/$defs/HardBreakNode",
+                "image": "#/$defs/ImageNode",
+                "text": "#/$defs/TextNode"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/TextNode"
+              },
+              {
+                "$ref": "#/$defs/HardBreakNode"
+              },
+              {
+                "$ref": "#/$defs/ImageNode"
+              }
+            ]
+          },
+          "title": "Content",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "attrs"
+      ],
+      "title": "HeadingNode",
+      "type": "object"
+    },
+    "ImageAttrs": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_id": {
+          "format": "uuid",
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "alt": {
+          "default": "",
+          "title": "Alt",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": [
+        "asset_id"
+      ],
+      "title": "ImageAttrs",
+      "type": "object"
+    },
+    "ImageNode": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "image",
+          "title": "Type",
+          "type": "string"
+        },
+        "attrs": {
+          "$ref": "#/$defs/ImageAttrs"
+        }
+      },
+      "required": [
+        "type",
+        "attrs"
+      ],
+      "title": "ImageNode",
+      "type": "object"
+    },
+    "ItalicMark": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "italic",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ItalicMark",
+      "type": "object"
+    },
+    "LinkAttrs": {
+      "additionalProperties": false,
+      "properties": {
+        "href": {
+          "minLength": 1,
+          "title": "Href",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "enum": [
+                "_blank",
+                "_self"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        }
+      },
+      "required": [
+        "href"
+      ],
+      "title": "LinkAttrs",
+      "type": "object"
+    },
+    "LinkMark": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "link",
+          "title": "Type",
+          "type": "string"
+        },
+        "attrs": {
+          "$ref": "#/$defs/LinkAttrs"
+        }
+      },
+      "required": [
+        "type",
+        "attrs"
+      ],
+      "title": "LinkMark",
+      "type": "object"
+    },
+    "ListItemNode": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "listItem",
+          "title": "Type",
+          "type": "string"
+        },
+        "content": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "answerSpace": "#/$defs/AnswerSpaceNode",
+                "bulletList": "#/$defs/BulletListNode",
+                "heading": "#/$defs/HeadingNode",
+                "image": "#/$defs/ImageNode",
+                "orderedList": "#/$defs/OrderedListNode",
+                "paragraph": "#/$defs/ParagraphNode",
+                "subQuestion": "#/$defs/SubQuestionNode",
+                "table": "#/$defs/TableNode"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ParagraphNode"
+              },
+              {
+                "$ref": "#/$defs/HeadingNode"
+              },
+              {
+                "$ref": "#/$defs/BulletListNode"
+              },
+              {
+                "$ref": "#/$defs/OrderedListNode"
+              },
+              {
+                "$ref": "#/$defs/TableNode"
+              },
+              {
+                "$ref": "#/$defs/ImageNode"
+              },
+              {
+                "$ref": "#/$defs/SubQuestionNode"
+              },
+              {
+                "$ref": "#/$defs/AnswerSpaceNode"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Content",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "content"
+      ],
+      "title": "ListItemNode",
+      "type": "object"
+    },
+    "OrderedListAttrs": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Start",
+          "type": "integer"
+        }
+      },
+      "title": "OrderedListAttrs",
+      "type": "object"
+    },
+    "OrderedListNode": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "orderedList",
+          "title": "Type",
+          "type": "string"
+        },
+        "attrs": {
+          "$ref": "#/$defs/OrderedListAttrs"
+        },
+        "content": {
+          "items": {
+            "$ref": "#/$defs/ListItemNode"
+          },
+          "minItems": 1,
+          "title": "Content",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "content"
+      ],
+      "title": "OrderedListNode",
+      "type": "object"
+    },
+    "ParagraphNode": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "paragraph",
+          "title": "Type",
+          "type": "string"
+        },
+        "content": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "hardBreak": "#/$defs/HardBreakNode",
+                "image": "#/$defs/ImageNode",
+                "text": "#/$defs/TextNode"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/TextNode"
+              },
+              {
+                "$ref": "#/$defs/HardBreakNode"
+              },
+              {
+                "$ref": "#/$defs/ImageNode"
+              }
+            ]
+          },
+          "title": "Content",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ParagraphNode",
+      "type": "object"
+    },
+    "SubQuestionAttrs": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "SubQuestionAttrs",
+      "type": "object"
+    },
+    "SubQuestionNode": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "subQuestion",
+          "title": "Type",
+          "type": "string"
+        },
+        "attrs": {
+          "$ref": "#/$defs/SubQuestionAttrs"
+        },
+        "content": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "answerSpace": "#/$defs/AnswerSpaceNode",
+                "bulletList": "#/$defs/BulletListNode",
+                "heading": "#/$defs/HeadingNode",
+                "image": "#/$defs/ImageNode",
+                "orderedList": "#/$defs/OrderedListNode",
+                "paragraph": "#/$defs/ParagraphNode",
+                "subQuestion": "#/$defs/SubQuestionNode",
+                "table": "#/$defs/TableNode"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ParagraphNode"
+              },
+              {
+                "$ref": "#/$defs/HeadingNode"
+              },
+              {
+                "$ref": "#/$defs/BulletListNode"
+              },
+              {
+                "$ref": "#/$defs/OrderedListNode"
+              },
+              {
+                "$ref": "#/$defs/TableNode"
+              },
+              {
+                "$ref": "#/$defs/ImageNode"
+              },
+              {
+                "$ref": "#/$defs/SubQuestionNode"
+              },
+              {
+                "$ref": "#/$defs/AnswerSpaceNode"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Content",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "attrs",
+        "content"
+      ],
+      "title": "SubQuestionNode",
+      "type": "object"
+    },
+    "SubscriptMark": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "subscript",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "SubscriptMark",
+      "type": "object"
+    },
+    "SuperscriptMark": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "superscript",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "SuperscriptMark",
+      "type": "object"
+    },
+    "TableCellNode": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "tableCell",
+          "title": "Type",
+          "type": "string"
+        },
+        "content": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "answerSpace": "#/$defs/AnswerSpaceNode",
+                "bulletList": "#/$defs/BulletListNode",
+                "heading": "#/$defs/HeadingNode",
+                "image": "#/$defs/ImageNode",
+                "orderedList": "#/$defs/OrderedListNode",
+                "paragraph": "#/$defs/ParagraphNode",
+                "subQuestion": "#/$defs/SubQuestionNode",
+                "table": "#/$defs/TableNode"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ParagraphNode"
+              },
+              {
+                "$ref": "#/$defs/HeadingNode"
+              },
+              {
+                "$ref": "#/$defs/BulletListNode"
+              },
+              {
+                "$ref": "#/$defs/OrderedListNode"
+              },
+              {
+                "$ref": "#/$defs/TableNode"
+              },
+              {
+                "$ref": "#/$defs/ImageNode"
+              },
+              {
+                "$ref": "#/$defs/SubQuestionNode"
+              },
+              {
+                "$ref": "#/$defs/AnswerSpaceNode"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Content",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "content"
+      ],
+      "title": "TableCellNode",
+      "type": "object"
+    },
+    "TableNode": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "table",
+          "title": "Type",
+          "type": "string"
+        },
+        "content": {
+          "items": {
+            "$ref": "#/$defs/TableRowNode"
+          },
+          "minItems": 1,
+          "title": "Content",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "content"
+      ],
+      "title": "TableNode",
+      "type": "object"
+    },
+    "TableRowNode": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "tableRow",
+          "title": "Type",
+          "type": "string"
+        },
+        "content": {
+          "items": {
+            "$ref": "#/$defs/TableCellNode"
+          },
+          "minItems": 1,
+          "title": "Content",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "content"
+      ],
+      "title": "TableRowNode",
+      "type": "object"
+    },
+    "TextNode": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "text",
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "marks": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "bold": "#/$defs/BoldMark",
+                "italic": "#/$defs/ItalicMark",
+                "link": "#/$defs/LinkMark",
+                "subscript": "#/$defs/SubscriptMark",
+                "superscript": "#/$defs/SuperscriptMark",
+                "underline": "#/$defs/UnderlineMark"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/BoldMark"
+              },
+              {
+                "$ref": "#/$defs/ItalicMark"
+              },
+              {
+                "$ref": "#/$defs/UnderlineMark"
+              },
+              {
+                "$ref": "#/$defs/SubscriptMark"
+              },
+              {
+                "$ref": "#/$defs/SuperscriptMark"
+              },
+              {
+                "$ref": "#/$defs/LinkMark"
+              }
+            ]
+          },
+          "title": "Marks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "title": "TextNode",
+      "type": "object"
+    },
+    "UnderlineMark": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "underline",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "UnderlineMark",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "const": "doc",
+      "default": "doc",
+      "title": "Type",
+      "type": "string"
+    },
+    "content": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "answerSpace": "#/$defs/AnswerSpaceNode",
+            "bulletList": "#/$defs/BulletListNode",
+            "heading": "#/$defs/HeadingNode",
+            "image": "#/$defs/ImageNode",
+            "orderedList": "#/$defs/OrderedListNode",
+            "paragraph": "#/$defs/ParagraphNode",
+            "subQuestion": "#/$defs/SubQuestionNode",
+            "table": "#/$defs/TableNode"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ParagraphNode"
+          },
+          {
+            "$ref": "#/$defs/HeadingNode"
+          },
+          {
+            "$ref": "#/$defs/BulletListNode"
+          },
+          {
+            "$ref": "#/$defs/OrderedListNode"
+          },
+          {
+            "$ref": "#/$defs/TableNode"
+          },
+          {
+            "$ref": "#/$defs/ImageNode"
+          },
+          {
+            "$ref": "#/$defs/SubQuestionNode"
+          },
+          {
+            "$ref": "#/$defs/AnswerSpaceNode"
+          }
+        ]
+      },
+      "title": "Content",
+      "type": "array"
+    }
+  },
+  "title": "DocNode",
+  "type": "object"
+}
