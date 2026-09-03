@@ -26,6 +26,13 @@ def get_paper(db: Session, paper_id: UUID, user: CurrentUser) -> Paper:
     return paper
 
 
+def get_template_for_paper(db: Session, paper: Paper) -> TemplateProfile:
+    template = db.get(TemplateProfile, paper.template_profile_id)
+    if template is None or template.workspace_id != paper.workspace_id:
+        raise HTTPException(404, "Template not found")
+    return template
+
+
 def get_section(db: Session, paper_id: UUID, section_id: UUID, user: CurrentUser) -> PaperSection:
     get_paper(db, paper_id, user)
     section = db.get(PaperSection, section_id)
