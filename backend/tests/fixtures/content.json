@@ -32,7 +32,7 @@
         {"type": "tableCell", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "B"}]}]}
       ]}
     ]},
-    {"type": "image", "attrs": {"asset_id": "11111111-1111-1111-1111-111111111111", "alt": "one pixel"}},
+    {"type": "image", "attrs": {"assetId": "11111111-1111-1111-1111-111111111111", "alt": "one pixel"}},
     {"type": "answerSpace", "attrs": {"lines": 2}}
   ]
 }

@@ -172,15 +172,22 @@
     "ImageAttrs": {
       "additionalProperties": false,
       "properties": {
-        "asset_id": {
+        "assetId": {
           "format": "uuid",
-          "title": "Asset Id",
+          "title": "Assetid",
           "type": "string"
         },
         "alt": {
-          "default": "",
-          "title": "Alt",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alt"
         },
         "title": {
           "anyOf": [
@@ -193,10 +200,23 @@
           ],
           "default": null,
           "title": "Title"
+        },
+        "widthMm": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Widthmm"
         }
       },
       "required": [
-        "asset_id"
+        "assetId"
       ],
       "title": "ImageAttrs",
       "type": "object"
