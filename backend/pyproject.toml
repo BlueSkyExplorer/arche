@@ -29,7 +29,10 @@ packages = ["app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["db: requires TEST_DATABASE_URL pointing to PostgreSQL"]
+markers = [
+    "db: requires TEST_DATABASE_URL pointing to PostgreSQL",
+    "libreoffice: requires a working LibreOffice binary",
+]
 
 [tool.ruff]
 line-length = 100

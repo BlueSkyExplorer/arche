@@ -24,4 +24,5 @@ class TemplateProfile(TimestampMixin, Base):
     numbering_config_json: Mapped[dict[str, Any]] = mapped_column(JSONB)
     section_style_config_json: Mapped[dict[str, Any]] = mapped_column(JSONB)
     question_style_config_json: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    role_styles: Mapped[dict[str, Any]] = mapped_column("role_styles_json", JSONB, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
