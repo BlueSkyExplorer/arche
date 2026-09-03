@@ -26,6 +26,7 @@ from app.document.ooxml import (
     add_hyperlink,
     append_page_number,
     ensure_paragraph_style,
+    normalize_zip_timestamps,
     set_paragraph_bottom_border,
     set_run_fonts,
     set_style_fonts,
@@ -172,8 +173,9 @@ def _add_inline(
     width_mm: float,
 ) -> None:
     if isinstance(node, ImageNode):
+        image_width = min(node.attrs.width_mm or width_mm, width_mm)
         paragraph.add_run().add_picture(
-            BytesIO(_resolve(assets, node.attrs.asset_id)), width=Mm(width_mm)
+            BytesIO(_resolve(assets, node.attrs.asset_id)), width=Mm(image_width)
         )
         return
     if node.type == "hardBreak":
@@ -307,7 +309,9 @@ def _question_label(ordinal: int, style: str) -> str:
 
 
 def _format_marks(value: Decimal, pattern: str) -> str:
-    rendered = format(value, "f").rstrip("0").rstrip(".")
+    rendered = format(value, "f")
+    if "." in rendered:
+        rendered = rendered.rstrip("0").rstrip(".")
     return pattern.format(marks=rendered)
 
 
@@ -394,7 +398,7 @@ def render_paper(
                     paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
     output = BytesIO()
     document.save(output)
-    return output.getvalue()
+    return normalize_zip_timestamps(output.getvalue())
 
 
 __all__ = [

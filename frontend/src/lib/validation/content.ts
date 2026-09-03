@@ -27,7 +27,10 @@ const imageNode = z.object({
 }).strict();
 const answerSpaceNode = z.object({
   type: z.literal("answerSpace"),
-  attrs: z.object({ lines: z.number().int().min(0) }).strict(),
+  attrs: z.union([
+    z.object({ lines: z.number().int().min(0) }).strict(),
+    z.object({ blankHeightMm: z.number().min(0) }).strict(),
+  ]),
 }).strict();
 
 const inlineNodeSchema: z.ZodType<ContentNode, ContentNode> = z.lazy(() => z.union([textNode, hardBreakNode]));
@@ -54,4 +57,17 @@ export const contentSchema: z.ZodType<QuestionContent, QuestionContent> = z.obje
 
 export function isValidContent(json: unknown): json is QuestionContent {
   return contentSchema.safeParse(json).success;
+}
+
+export function normalizeContentForWire(content: QuestionContent): QuestionContent {
+  const normalize = (node: ContentNode): ContentNode => {
+    const attrs = node.attrs ? { ...node.attrs } : undefined;
+    if (node.type === "image" && attrs?.alt === null) delete attrs.alt;
+    return {
+      ...node,
+      ...(attrs ? { attrs } : {}),
+      ...(node.content ? { content: node.content.map(normalize) } : {}),
+    };
+  };
+  return { type: "doc", content: content.content.map(normalize) };
 }

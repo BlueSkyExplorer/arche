@@ -10,6 +10,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from pydantic.alias_generators import to_camel
 
 
 class StrictModel(BaseModel):
@@ -68,9 +69,12 @@ class HardBreakNode(StrictModel):
 
 
 class ImageAttrs(StrictModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, alias_generator=to_camel)
+
     asset_id: UUID
-    alt: str = ""
+    alt: str | None = None
     title: str | None = None
+    width_mm: float | None = Field(default=None, gt=0)
 
 
 class ImageNode(StrictModel):
@@ -97,8 +101,10 @@ class HeadingNode(StrictModel):
 
 
 class AnswerSpaceAttrs(StrictModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, alias_generator=to_camel)
+
     lines: int | None = Field(default=None, ge=0)
-    blank_height_mm: float | None = Field(default=None, alias="blankHeightMm", ge=0)
+    blank_height_mm: float | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def exactly_one_dimension(self) -> AnswerSpaceAttrs:
@@ -153,8 +159,30 @@ class TableNode(StrictModel):
             raise ValueError("table rows must contain the same number of cells")
         return self
 
+    @model_validator(mode="after")
+    def no_nested_tables(self) -> TableNode:
+        def contains_table(value: object) -> bool:
+            if isinstance(value, TableNode):
+                return True
+            if isinstance(value, BaseModel):
+                return any(contains_table(item) for item in value.__dict__.values())
+            if isinstance(value, (list, tuple)):
+                return any(contains_table(item) for item in value)
+            return False
+
+        if any(
+            contains_table(block)
+            for row in self.content
+            for cell in row.content
+            for block in cell.content
+        ):
+            raise ValueError("tables may not be nested inside table cells")
+        return self
+
 
 class SubQuestionAttrs(StrictModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, alias_generator=to_camel)
+
     label: str = Field(min_length=1)
 
 

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QuestionEditor } from "./editor/question-editor";
-import { contentSchema, isValidContent, type QuestionContent } from "@/lib/validation/content";
+import { contentSchema, isValidContent, normalizeContentForWire, type QuestionContent } from "@/lib/validation/content";
 import { ApiError } from "@/lib/api/client";
 import { createQuestion, listQuestions, updateQuestion, type Question, type QuestionInput } from "@/lib/api/questions";
 
@@ -43,14 +43,14 @@ export default function QuestionsPage({ token }: { token: string }) {
   }, [token]);
 
   const openCreate = () => { setEditing(undefined); setSaveError(undefined); form.reset(defaults); setDialogOpen(true); };
-  const openEdit = (question: Question) => { setEditing(question); setSaveError(undefined); form.reset({ internalTitle: question.internal_title, subject: question.subject, level: question.level, tagsText: question.tags_json.join(", "), marks: Number(question.marks), sourceNote: question.source_note ?? "", status: question.status, content: question.content_json }); setDialogOpen(true); };
+  const openEdit = (question: Question) => { setEditing(question); setSaveError(undefined); form.reset({ internalTitle: question.internal_title, subject: question.subject, level: question.level, tagsText: question.tags_json.join(", "), marks: Number(question.marks), sourceNote: question.source_note ?? "", status: question.status, content: normalizeContentForWire(question.content_json) }); setDialogOpen(true); };
   const submit = form.handleSubmit(async (values) => {
     setSaveError(undefined);
     if (!isValidContent(values.content)) {
       form.setError("content", { message: "Invalid question content / 題目內容格式不正確" });
       return;
     }
-    const input: QuestionInput = { internalTitle: values.internalTitle, subject: values.subject, level: values.level, tags: values.tagsText.split(/[,，]/u).map((tag) => tag.trim()).filter(Boolean), marks: values.marks, sourceNote: values.sourceNote, status: values.status, content: values.content };
+    const input: QuestionInput = { internalTitle: values.internalTitle, subject: values.subject, level: values.level, tags: values.tagsText.split(/[,，]/u).map((tag) => tag.trim()).filter(Boolean), marks: values.marks, sourceNote: values.sourceNote, status: values.status, content: normalizeContentForWire(values.content) };
     try { if (editing) await updateQuestion(token, editing.id, input); else await createQuestion(token, input); setDialogOpen(false); await load(); } catch (error) { setSaveError(errorMessage(error)); }
   });
 

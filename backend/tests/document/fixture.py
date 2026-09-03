@@ -56,10 +56,48 @@ def paper() -> PaperData:
         content=DocNode.model_validate(raw),
         marks=Decimal("2"),
     )
+    ten_mark_question = RenderQuestion(
+        id=UUID("33333333-3333-3333-3333-333333333333"),
+        position=2,
+        content=DocNode.model_validate(
+            {
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": "Ten-mark question"}],
+                    }
+                ],
+            }
+        ),
+        marks=Decimal("10"),
+    )
+    twenty_mark_question = RenderQuestion(
+        id=UUID("44444444-4444-4444-4444-444444444444"),
+        position=3,
+        content=DocNode.model_validate(
+            {
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": "Twenty-mark question"}],
+                    }
+                ],
+            }
+        ),
+        marks=Decimal("20"),
+    )
     return PaperData(
         title="中英數學測驗 Bilingual Mathematics",
         subject="Mathematics",
         level="Form 2",
         instructions=("Answer all questions exactly as written.",),
-        sections=(RenderSection(title="甲部 Section A", position=1, questions=(question,)),),
+        sections=(
+            RenderSection(
+                title="甲部 Section A",
+                position=1,
+                questions=(question, ten_mark_question, twenty_mark_question),
+            ),
+        ),
     )

@@ -15,6 +15,53 @@ def test_content_returns_typed_nodes() -> None:
     assert content.content[0].type == "paragraph"
 
 
+def test_editor_camel_case_attrs_parse_exactly() -> None:
+    content = DocNode.model_validate(
+        {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "image",
+                    "attrs": {
+                        "assetId": "11111111-1111-1111-1111-111111111111",
+                        "alt": None,
+                        "widthMm": 35,
+                    },
+                },
+                {
+                    "type": "subQuestion",
+                    "attrs": {"label": "(a)"},
+                    "content": [{"type": "paragraph"}],
+                },
+                {"type": "answerSpace", "attrs": {"lines": 3}},
+                {"type": "answerSpace", "attrs": {"blankHeightMm": 12.5}},
+            ],
+        }
+    )
+    image = content.content[0]
+    assert image.type == "image"
+    assert image.attrs.width_mm == 35
+    assert image.attrs.alt is None
+
+
+def test_nested_table_in_table_cell_is_rejected() -> None:
+    nested = {
+        "type": "table",
+        "content": [
+            {
+                "type": "tableRow",
+                "content": [{"type": "tableCell", "content": [{"type": "paragraph"}]}],
+            }
+        ],
+    }
+    outer = {
+        "type": "table",
+        "content": [{"type": "tableRow", "content": [{"type": "tableCell", "content": [nested]}]}],
+    }
+    with pytest.raises(ValidationError, match="tables may not be nested"):
+        DocNode.model_validate({"type": "doc", "content": [outer]})
+
+
 @pytest.mark.parametrize(
     "payload",
     [
