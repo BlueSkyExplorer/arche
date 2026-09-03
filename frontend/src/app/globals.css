@@ -53,3 +53,17 @@
 
 * { @apply border-border; }
 body { @apply bg-background text-foreground antialiased; }
+
+.question-editor-content { @apply min-h-44 px-4 py-3 outline-none; }
+.question-editor-content p { @apply my-2; }
+.question-editor-content ul { @apply my-2 list-disc pl-6; }
+.question-editor-content ol { @apply my-2 list-decimal pl-6; }
+.question-editor-content table { @apply my-3 w-full border-collapse; }
+.question-editor-content td { @apply min-w-24 border p-2 align-top; }
+.question-editor-content a { @apply text-primary underline; }
+.question-editor-content .is-editor-empty:first-child::before { content: attr(data-placeholder); @apply pointer-events-none float-left h-0 text-muted-foreground; }
+.question-sub-question { @apply my-3 flex gap-3 rounded-md border-l-4 border-primary bg-muted/40 p-3; }
+.question-sub-question-label { @apply font-semibold; }
+.question-sub-question-content { @apply min-w-0 flex-1; }
+.question-answer-space { @apply my-3 flex items-center gap-3 rounded-md border border-dashed bg-muted/50 p-3 text-sm text-muted-foreground; }
+.question-image { @apply my-3 rounded-md border bg-muted p-4 text-center text-sm text-muted-foreground; }
