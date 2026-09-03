@@ -19,6 +19,12 @@ from app.schemas.domain import (
     SectionPatch,
 )
 from app.services import papers
+from app.services.numbering import (
+    NumberingConfig,
+    QuestionForNumbering,
+    SectionForNumbering,
+    number_questions,
+)
 
 router = APIRouter(prefix="/papers", tags=["papers"])
 User = Annotated[CurrentUser, Depends(get_current_user)]
@@ -28,10 +34,43 @@ Db = Annotated[Session, Depends(get_db)]
 def detail(db: Session, paper: object) -> PaperDetail:
     tree, total = papers.paper_tree(db, paper)  # type: ignore[arg-type]
     base = PaperRead.model_validate(paper).model_dump()
+    template = papers.get_template_for_paper(db, paper)  # type: ignore[arg-type]
+    style = template.numbering_config_json.get("question_style", "1.")
+    style_map = {
+        "1": "arabic-dot",
+        "1.": "arabic-dot",
+        "(1)": "arabic-dot",
+        "arabic-dot": "arabic-dot",
+        "lower-alpha": "lower-alpha",
+        "upper-alpha": "upper-alpha",
+        "roman": "roman",
+    }
+    numbered = number_questions(
+        [
+            SectionForNumbering(
+                position=section.position,
+                questions=[
+                    QuestionForNumbering(
+                        question_id=pq.id,
+                        position=pq.position,
+                        marks=question.marks,
+                        marks_override=pq.marks_override,
+                    )
+                    for pq, question in pairs
+                ],
+            )
+            for section, pairs in tree
+        ],
+        NumberingConfig(question_style=style_map[style]),  # type: ignore[arg-type]
+    )
+    labels = {item.question.question_id: item.label for item in numbered}
     sections = [
         PaperSectionDetail(
             **PaperSectionRead.model_validate(section).model_dump(),
-            questions=[PaperQuestionRead.model_validate(pq) for pq, _ in pairs],
+            questions=[
+                PaperQuestionRead.model_validate(pq).model_copy(update={"label": labels[pq.id]})
+                for pq, _ in pairs
+            ],
         )
         for section, pairs in tree
     ]

@@ -55,6 +55,7 @@ class PaperQuestionRead(OrmReadModel):
     position: int
     marks_override: Decimal | None
     settings_json: dict[str, Any]
+    label: str | None = None
 
 
 class ExportRead(OrmReadModel):
