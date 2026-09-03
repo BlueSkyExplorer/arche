@@ -7,7 +7,15 @@ const markSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("underline") }).strict(),
   z.object({ type: z.literal("subscript") }).strict(),
   z.object({ type: z.literal("superscript") }).strict(),
-  z.object({ type: z.literal("link"), attrs: z.object({ href: z.string() }).strict() }).strict(),
+  z.object({
+    type: z.literal("link"),
+    attrs: z.object({
+      href: z.string(),
+      title: z.string().nullable().optional(),
+      target: z.string().nullable().optional(),
+      rel: z.string().nullable().optional(),
+    }).strict(),
+  }).strict(),
 ]);
 
 export type ContentNode = {
@@ -28,8 +36,8 @@ const imageNode = z.object({
 const answerSpaceNode = z.object({
   type: z.literal("answerSpace"),
   attrs: z.union([
-    z.object({ lines: z.number().int().min(0) }).strict(),
-    z.object({ blankHeightMm: z.number().min(0) }).strict(),
+    z.object({ lines: z.number().int().min(1) }).strict(),
+    z.object({ blankHeightMm: z.number().min(1) }).strict(),
   ]),
 }).strict();
 
@@ -41,7 +49,11 @@ const blockNodeSchema: z.ZodType<ContentNode, ContentNode> = z.lazy(() => z.unio
   z.object({ type: z.literal("orderedList"), content: z.array(listItemSchema).min(1) }).strict(),
   tableSchema,
   imageNode,
-  z.object({ type: z.literal("subQuestion"), attrs: z.object({ label: z.string() }).strict(), content: z.array(blockNodeSchema).min(1) }).strict(),
+  z.object({
+    type: z.literal("subQuestion"),
+    attrs: z.object({ label: z.string().min(1).nullable().optional() }).strict().optional(),
+    content: z.array(blockNodeSchema).min(1),
+  }).strict(),
   answerSpaceNode,
 ]));
 

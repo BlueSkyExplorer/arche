@@ -2,7 +2,10 @@
 
 Answer-space lines use empty paragraphs with a bottom border. ``blankHeightMm`` produces
 one bordered paragraph with an exact requested height; ``lines`` produces that many
-fixed-height (7 mm) rows. This avoids font-dependent underscore widths.
+fixed-height (7 mm) rows. This avoids font-dependent underscore widths. Link ``rel`` and
+``target`` attributes are accepted as editor metadata but intentionally do not affect
+Word hyperlinks. Inline marks follow the final body paragraph, except after a table or
+answer-space block, where a dedicated right-aligned ``QuestionMarks`` paragraph is used.
 """
 
 from __future__ import annotations
@@ -48,7 +51,7 @@ from app.schemas.content import (
     TextNode,
 )
 from app.schemas.template_profile import RoleStyleConfig, SemanticRole, TemplateProfileConfig
-from app.services.numbering import format_number
+from app.services.numbering import format_question_label
 
 
 class RenderModel(BaseModel):
@@ -215,6 +218,8 @@ def _render_list(
     config: TemplateProfileConfig,
     assets: AssetSource,
     width_mm: float,
+    sub_question_index: list[int] | None = None,
+    sub_question_style: str = "(a)",
 ) -> None:
     start = node.attrs.start if isinstance(node, OrderedListNode) else 1
     for offset, item in enumerate(node.content):
@@ -227,7 +232,15 @@ def _render_list(
                 paragraph.add_run(prefix)
                 _fill_paragraph(paragraph, block, config, assets, width_mm - 8)
             else:
-                _render_block(container, block, config, assets, width_mm - 8)
+                _render_block(
+                    container,
+                    block,
+                    config,
+                    assets,
+                    width_mm - 8,
+                    sub_question_index,
+                    sub_question_style,
+                )
             first = False
 
 
@@ -237,6 +250,8 @@ def _render_table(
     config: TemplateProfileConfig,
     assets: AssetSource,
     width_mm: float,
+    sub_question_index: list[int] | None = None,
+    sub_question_style: str = "(a)",
 ) -> None:
     table = container.add_table(rows=len(node.content), cols=len(node.content[0].content))
     table.autofit = False
@@ -252,7 +267,15 @@ def _render_table(
                         paragraph, block, config, assets, width_mm / len(row_node.content)
                     )
                 else:
-                    _render_block(cell, block, config, assets, width_mm / len(row_node.content))
+                    _render_block(
+                        cell,
+                        block,
+                        config,
+                        assets,
+                        width_mm / len(row_node.content),
+                        sub_question_index,
+                        sub_question_style,
+                    )
 
 
 def _render_block(
@@ -261,25 +284,58 @@ def _render_block(
     config: TemplateProfileConfig,
     assets: AssetSource,
     width_mm: float,
+    sub_question_index: list[int] | None = None,
+    sub_question_style: str = "(a)",
 ) -> None:
     if isinstance(node, ParagraphNode):
         _fill_paragraph(_new_paragraph(container, "QuestionBody"), node, config, assets, width_mm)
     elif isinstance(node, HeadingNode):
         _fill_paragraph(_new_paragraph(container, "SectionHeading"), node, config, assets, width_mm)
     elif isinstance(node, (BulletListNode, OrderedListNode)):
-        _render_list(container, node, config, assets, width_mm)
+        _render_list(
+            container,
+            node,
+            config,
+            assets,
+            width_mm,
+            sub_question_index,
+            sub_question_style,
+        )
     elif isinstance(node, TableNode):
-        _render_table(container, node, config, assets, width_mm)
+        _render_table(
+            container,
+            node,
+            config,
+            assets,
+            width_mm,
+            sub_question_index,
+            sub_question_style,
+        )
     elif isinstance(node, ImageNode):
         _add_inline(_new_paragraph(container, "QuestionBody"), node, config, assets, width_mm)
     elif isinstance(node, SubQuestionNode):
+        if sub_question_index is None:
+            sub_question_index = [0]
+        sub_question_index[0] += 1
+        label = node.attrs.label or format_question_label(
+            sub_question_index[0],
+            sub_question_style,  # type: ignore[arg-type]
+        )
         paragraph = _new_paragraph(container, "QuestionSubpart")
-        paragraph.add_run(f"{node.attrs.label} ")
+        paragraph.add_run(f"{label} ")
         for index, child in enumerate(node.content):
             if index == 0 and isinstance(child, ParagraphNode):
                 _fill_paragraph(paragraph, child, config, assets, width_mm - 8)
             else:
-                _render_block(container, child, config, assets, width_mm - 8)
+                _render_block(
+                    container,
+                    child,
+                    config,
+                    assets,
+                    width_mm - 8,
+                    sub_question_index,
+                    sub_question_style,
+                )
     elif isinstance(node, AnswerSpaceNode):
         heights = (
             [7.0] * node.attrs.lines
@@ -293,19 +349,14 @@ def _render_block(
             set_paragraph_bottom_border(paragraph)
 
 
-def _question_label(ordinal: int, style: str) -> str:
-    if style in {"1", "(1)"}:
-        return str(ordinal) if style == "1" else f"({ordinal})"
-    if style in {"1.", "arabic-dot"}:
-        return f"{ordinal}."
-    if style in {"a", "a.", "(a)"}:
-        rendered = format_number(ordinal, "lower-alpha").strip("()")
-        return {"a": rendered, "a.": f"{rendered}.", "(a)": f"({rendered})"}[style]
-    if style == "lower-alpha":
-        return format_number(ordinal, "lower-alpha")
-    if style == "upper-alpha":
-        return format_number(ordinal, "upper-alpha")
-    return format_number(ordinal, "roman")
+def _contains_answer_space(value: object) -> bool:
+    if isinstance(value, AnswerSpaceNode):
+        return True
+    if isinstance(value, BaseModel):
+        return any(_contains_answer_space(item) for item in value.__dict__.values())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_answer_space(item) for item in value)
+    return False
 
 
 def _format_marks(value: Decimal, pattern: str) -> str:
@@ -372,7 +423,7 @@ def render_paper(
             document.add_paragraph(instruction, style="QuestionBody")
         for question in sorted(section_data.questions, key=lambda value: value.position):
             ordinal += 1
-            label = _question_label(ordinal, config.numbering_config_json.question_style)
+            label = format_question_label(ordinal, config.numbering_config_json.question_style)
             blocks = list(question.content.content)
             if blocks and isinstance(blocks[0], ParagraphNode):
                 first_block = blocks.pop(0)
@@ -384,13 +435,39 @@ def render_paper(
                 )
             else:
                 document.add_paragraph(label, style="QuestionBody")
+            sub_question_index = [0]
             for block in blocks:
-                _render_block(document, block, config, questions_with_assets, available_width)
+                _render_block(
+                    document,
+                    block,
+                    config,
+                    questions_with_assets,
+                    available_width,
+                    sub_question_index,
+                    config.numbering_config_json.sub_question_style,
+                )
+            if (
+                config.question_style_config_json.default_answer_lines > 0
+                and not _contains_answer_space(question.content)
+            ):
+                default_space = AnswerSpaceNode.model_validate(
+                    {
+                        "type": "answerSpace",
+                        "attrs": {"lines": config.question_style_config_json.default_answer_lines},
+                    }
+                )
+                _render_block(
+                    document, default_space, config, questions_with_assets, available_width
+                )
+                blocks.append(default_space)
             marks = _format_marks(
                 question.effective_marks, config.question_style_config_json.marks_format
             )
             display = config.question_style_config_json.marks_display
-            if display == "inline" and document.paragraphs:
+            final_is_separate_block = bool(blocks) and isinstance(
+                blocks[-1], (TableNode, AnswerSpaceNode)
+            )
+            if display == "inline" and document.paragraphs and not final_is_separate_block:
                 document.paragraphs[-1].add_run(f" {marks}")
             else:
                 paragraph = document.add_paragraph(marks, style="QuestionMarks")

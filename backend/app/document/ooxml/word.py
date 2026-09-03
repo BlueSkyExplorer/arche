@@ -49,7 +49,22 @@ def set_paragraph_bottom_border(paragraph: Paragraph) -> None:
     borders = properties.find(qn("w:pBdr"))
     if borders is None:
         borders = OxmlElement("w:pBdr")
-        properties.append(borders)
+        properties.insert_element_before(
+            borders,
+            "w:shd",
+            "w:tabs",
+            "w:suppressAutoHyphens",
+            "w:kinsoku",
+            "w:wordWrap",
+            "w:overflowPunct",
+            "w:topLinePunct",
+            "w:autoSpaceDE",
+            "w:autoSpaceDN",
+            "w:bidi",
+            "w:adjustRightInd",
+            "w:snapToGrid",
+            "w:spacing",
+        )
     bottom = OxmlElement("w:bottom")
     bottom.set(qn("w:val"), "single")
     bottom.set(qn("w:sz"), "4")
@@ -67,7 +82,15 @@ def set_table_borders(table: Table) -> None:
         border.set(qn("w:sz"), "4")
         border.set(qn("w:color"), "auto")
         borders.append(border)
-    properties.append(borders)
+    properties.insert_element_before(
+        borders,
+        "w:shd",
+        "w:tblLayout",
+        "w:tblCellMar",
+        "w:tblLook",
+        "w:tblCaption",
+        "w:tblDescription",
+    )
 
 
 def add_hyperlink(paragraph: Paragraph, url: str) -> Run:

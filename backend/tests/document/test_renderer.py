@@ -17,6 +17,13 @@ from app.document.renderer import (
     render_paper,
 )
 from app.schemas.content import DocNode
+from app.schemas.template_profile import NumberingConfig as TemplateNumberingConfig
+from app.services.numbering import (
+    NumberingConfig,
+    QuestionForNumbering,
+    SectionForNumbering,
+    number_questions,
+)
 from tests.document.fixture import FIXTURES, IMAGE_ID, paper, profile
 from tests.document.regenerate import update_golden
 
@@ -133,6 +140,257 @@ def test_blank_height_answer_space_is_rendered() -> None:
         )
     )
     assert b'w:line="709"' in _part(rendered, "word/document.xml")
+
+
+def test_tiptap_link_mark_renders_text_and_hyperlink_relationship() -> None:
+    content = DocNode.model_validate(
+        {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "linked text",
+                            "marks": [
+                                {
+                                    "type": "link",
+                                    "attrs": {
+                                        "href": "https://example.com",
+                                        "target": "_blank",
+                                        "rel": "noopener noreferrer",
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    rendered = _render_content(content)
+    assert b"linked text" in _part(rendered, "word/document.xml")
+    rels = _part(rendered, "word/_rels/document.xml.rels")
+    assert b'Target="https://example.com"' in rels
+    assert b'rel="noopener noreferrer"' not in _part(rendered, "word/document.xml")
+
+
+def test_ooxml_border_elements_follow_schema_child_order() -> None:
+    content = DocNode.model_validate(
+        {
+            "type": "doc",
+            "content": [
+                {"type": "answerSpace", "attrs": {"lines": 1}},
+                {
+                    "type": "table",
+                    "content": [
+                        {
+                            "type": "tableRow",
+                            "content": [{"type": "tableCell", "content": [{"type": "paragraph"}]}],
+                        }
+                    ],
+                },
+            ],
+        }
+    )
+    xml = _part(_render_content(content), "word/document.xml")
+    answer_ppr = xml[xml.index(b'<w:pPr><w:pStyle w:val="AnswerSpace"') :]
+    answer_ppr = answer_ppr[: answer_ppr.index(b"</w:pPr>")]
+    assert answer_ppr.index(b"<w:pBdr>") < answer_ppr.index(b"<w:spacing")
+    table_pr = xml[xml.index(b"<w:tblPr>") : xml.index(b"</w:tblPr>")]
+    assert table_pr.index(b"<w:tblBorders>") < table_pr.index(b"<w:tblLook")
+
+
+@pytest.mark.parametrize(
+    "ending",
+    [
+        {
+            "type": "table",
+            "content": [
+                {
+                    "type": "tableRow",
+                    "content": [{"type": "tableCell", "content": [{"type": "paragraph"}]}],
+                }
+            ],
+        },
+        {"type": "answerSpace", "attrs": {"lines": 1}},
+    ],
+)
+def test_inline_marks_after_non_paragraph_final_block(ending: object) -> None:
+    config = profile().config.model_copy(
+        update={
+            "question_style_config_json": profile().config.question_style_config_json.model_copy(
+                update={"marks_display": "inline"}
+            )
+        }
+    )
+    rendered = render_paper(
+        PaperData(
+            title="Marks placement",
+            sections=(
+                RenderSection(
+                    title="Section",
+                    position=1,
+                    questions=(
+                        RenderQuestion(
+                            id=paper().sections[0].questions[0].id,
+                            position=1,
+                            content=DocNode.model_validate(
+                                {
+                                    "type": "doc",
+                                    "content": [
+                                        {
+                                            "type": "paragraph",
+                                            "content": [{"type": "text", "text": "stem"}],
+                                        },
+                                        ending,
+                                    ],
+                                }
+                            ),
+                            marks=Decimal("1"),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        profile().model_copy(update={"config": config}),
+        {},
+    )
+    xml = _part(rendered, "word/document.xml")
+    final_block = (
+        b"<w:tbl>"
+        if isinstance(ending, dict) and ending["type"] == "table"
+        else b'w:pStyle w:val="AnswerSpace"'
+    )
+    marks = b"(1 marks)"
+    assert xml.index(final_block) < xml.index(marks)
+    marks_context = xml[xml.rindex(b"<w:p", 0, xml.index(marks)) : xml.index(marks)]
+    assert b"QuestionMarks" in marks_context
+
+
+def test_default_answer_lines_are_appended_only_when_content_has_none() -> None:
+    config = profile().config.model_copy(
+        update={
+            "question_style_config_json": profile().config.question_style_config_json.model_copy(
+                update={"default_answer_lines": 2}
+            )
+        }
+    )
+    questions = (
+        RenderQuestion(
+            id=paper().sections[0].questions[0].id,
+            position=1,
+            content=DocNode.model_validate({"type": "doc", "content": [{"type": "paragraph"}]}),
+            marks=Decimal(1),
+        ),
+        RenderQuestion(
+            id=paper().sections[0].questions[1].id,
+            position=2,
+            content=DocNode.model_validate(
+                {
+                    "type": "doc",
+                    "content": [{"type": "answerSpace", "attrs": {"lines": 1}}],
+                }
+            ),
+            marks=Decimal(1),
+        ),
+    )
+    rendered = render_paper(
+        PaperData(
+            title="Defaults",
+            sections=(RenderSection(title="S", position=1, questions=questions),),
+        ),
+        profile().model_copy(update={"config": config}),
+        {},
+    )
+    assert _part(rendered, "word/document.xml").count(b'w:pStyle w:val="AnswerSpace"') == 3
+
+
+def test_unlabelled_subquestions_use_configured_style_and_explicit_labels_win() -> None:
+    content = DocNode.model_validate(
+        {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "subQuestion",
+                    "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "auto one"}]}
+                    ],
+                },
+                {
+                    "type": "subQuestion",
+                    "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "auto two"}]}
+                    ],
+                },
+                {
+                    "type": "subQuestion",
+                    "attrs": {"label": "Custom"},
+                    "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "explicit"}]}
+                    ],
+                },
+            ],
+        }
+    )
+    config = profile().config.model_copy(
+        update={
+            "numbering_config_json": TemplateNumberingConfig(
+                question_style="1.", sub_question_style="upper-alpha"
+            )
+        }
+    )
+    rendered = render_paper(
+        PaperData(
+            title="Sub labels",
+            sections=(
+                RenderSection(
+                    title="S",
+                    position=1,
+                    questions=(
+                        RenderQuestion(
+                            id=paper().sections[0].questions[0].id,
+                            position=1,
+                            content=content,
+                            marks=Decimal(1),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        profile().model_copy(update={"config": config}),
+        {},
+    )
+    text = "\n".join(p.text for p in Document(BytesIO(rendered)).paragraphs)
+    assert "(A) auto one" in text
+    assert "(B) auto two" in text
+    assert "Custom explicit" in text
+
+
+@pytest.mark.parametrize(
+    "style", ["1", "1.", "(1)", "arabic-dot", "lower-alpha", "upper-alpha", "roman"]
+)
+def test_preview_and_docx_question_labels_match(style: str) -> None:
+    numbered = number_questions(
+        [
+            SectionForNumbering(
+                position=1,
+                questions=[QuestionForNumbering(question_id="q", position=1, marks=Decimal(1))],
+            )
+        ],
+        NumberingConfig(question_style=style),  # type: ignore[arg-type]
+    )
+    config = profile().config.model_copy(
+        update={"numbering_config_json": TemplateNumberingConfig(question_style=style)}
+    )  # type: ignore[arg-type]
+    rendered = render_paper(
+        paper(),
+        profile().model_copy(update={"config": config}),
+        {IMAGE_ID: (FIXTURES / "tiny.png").read_bytes()},
+    )
+    first_question_text = "\n".join(p.text for p in Document(BytesIO(rendered)).paragraphs)
+    assert f"{numbered[0].label} 保留原文" in first_question_text
 
 
 @pytest.mark.parametrize(

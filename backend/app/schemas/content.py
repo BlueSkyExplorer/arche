@@ -24,7 +24,8 @@ class EmptyAttrs(StrictModel):
 class LinkAttrs(StrictModel):
     href: str = Field(min_length=1)
     title: str | None = None
-    target: Literal["_blank", "_self"] | None = None
+    target: str | None = None
+    rel: str | None = None
 
 
 class BoldMark(StrictModel):
@@ -103,8 +104,8 @@ class HeadingNode(StrictModel):
 class AnswerSpaceAttrs(StrictModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True, alias_generator=to_camel)
 
-    lines: int | None = Field(default=None, ge=0)
-    blank_height_mm: float | None = Field(default=None, ge=0)
+    lines: int | None = Field(default=None, ge=1)
+    blank_height_mm: float | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def exactly_one_dimension(self) -> AnswerSpaceAttrs:
@@ -121,6 +122,12 @@ class AnswerSpaceNode(StrictModel):
 class ListItemNode(StrictModel):
     type: Literal["listItem"]
     content: list[BlockNode] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def starts_with_paragraph(self) -> ListItemNode:
+        if not isinstance(self.content[0], ParagraphNode):
+            raise ValueError("listItem content must start with a paragraph")
+        return self
 
 
 class BulletListNode(StrictModel):
@@ -183,12 +190,12 @@ class TableNode(StrictModel):
 class SubQuestionAttrs(StrictModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True, alias_generator=to_camel)
 
-    label: str = Field(min_length=1)
+    label: str | None = Field(default=None, min_length=1)
 
 
 class SubQuestionNode(StrictModel):
     type: Literal["subQuestion"]
-    attrs: SubQuestionAttrs
+    attrs: SubQuestionAttrs = Field(default_factory=SubQuestionAttrs)
     content: list[BlockNode] = Field(min_length=1)
 
 

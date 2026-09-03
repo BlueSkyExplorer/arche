@@ -9,12 +9,14 @@ from typing import Literal
 from uuid import UUID
 
 NumberingStyle = Literal["arabic-dot", "lower-alpha", "upper-alpha", "roman"]
+QuestionStyle = Literal["1", "1.", "(1)", "arabic-dot", "lower-alpha", "upper-alpha", "roman"]
+SubQuestionStyle = Literal["a", "a.", "(a)", "arabic-dot", "lower-alpha", "upper-alpha", "roman"]
 
 
 @dataclass(frozen=True, slots=True)
 class NumberingConfig:
-    question_style: NumberingStyle = "arabic-dot"
-    sub_question_style: NumberingStyle = "lower-alpha"
+    question_style: QuestionStyle = "arabic-dot"
+    sub_question_style: SubQuestionStyle = "lower-alpha"
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +90,24 @@ def format_number(value: int, style: NumberingStyle) -> str:
     return f"({_roman(value)})"
 
 
+def format_question_label(value: int, style: QuestionStyle | SubQuestionStyle) -> str:
+    """Format every template numbering enum without lossy style folding."""
+    if style == "1":
+        return str(value)
+    if style in {"1.", "arabic-dot"}:
+        return format_number(value, "arabic-dot")
+    if style == "(1)":
+        return f"({value})"
+    if style in {"a", "a.", "(a)"}:
+        rendered = _letters(value)
+        return {"a": rendered, "a.": f"{rendered}.", "(a)": f"({rendered})"}[style]
+    if style == "lower-alpha":
+        return format_number(value, "lower-alpha")
+    if style == "upper-alpha":
+        return format_number(value, "upper-alpha")
+    return format_number(value, "roman")
+
+
 def number_questions(
     sections: Sequence[SectionForNumbering],
     config: NumberingConfig | None = None,
@@ -100,14 +120,14 @@ def number_questions(
         for question in sorted(section.questions, key=lambda item: item.position):
             ordinal += 1
             sub_labels = tuple(
-                format_number(index, config.sub_question_style)
+                format_question_label(index, config.sub_question_style)
                 for index in range(1, question.sub_question_count + 1)
             )
             result.append(
                 NumberedQuestion(
                     question=question,
                     ordinal=ordinal,
-                    label=format_number(ordinal, config.question_style),
+                    label=format_question_label(ordinal, config.question_style),
                     sub_question_labels=sub_labels,
                 )
             )
