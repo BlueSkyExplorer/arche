@@ -45,7 +45,7 @@ export function QuestionEditor({ value, onChange, onReady, disabled = false }: P
       StarterKit.configure({ blockquote: false, bulletList: false, orderedList: false, listItem: false, code: false, codeBlock: false, strike: false, horizontalRule: false, heading: { levels: [1, 2, 3] } }),
       BulletList, OrderedList.extend({ addAttributes: () => ({}) }), ListItem,
       Underline, Subscript, Superscript, Link.configure({ openOnClick: false }),
-      Table.configure({ resizable: false }), TableRow, QuestionTableCell,
+      Table.configure({ resizable: false }), TableRow.extend({ content: "tableCell+" }), QuestionTableCell,
       QuestionImageNode, SubQuestionNode, AnswerSpaceNode,
       Placeholder.configure({ placeholder: "輸入題目… Type a question…" }),
     ],
