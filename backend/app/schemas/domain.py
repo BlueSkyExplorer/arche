@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.question import QuestionRead
+
 
 class OrmReadModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -56,6 +58,7 @@ class PaperQuestionRead(OrmReadModel):
     marks_override: Decimal | None
     settings_json: dict[str, Any]
     label: str | None = None
+    question: QuestionRead | None = None
 
 
 class ExportRead(OrmReadModel):

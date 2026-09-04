@@ -95,6 +95,12 @@ def test_paper_edit_reorder_numbering_and_section_cascade(
     assert Decimal(detail["total_marks"]) == Decimal("7.25")
     selected = next(section for section in detail["sections"] if section["id"] == section_id)
     assert [row["label"] for row in selected["questions"]] == ["1.", "2."]
+    # Paper detail must embed the reusable question payload (the paper builder renders from it).
+    embedded = {row["question_id"]: row["question"] for row in selected["questions"]}
+    assert set(embedded) == {questions[0]["id"], questions[1]["id"]}
+    assert embedded[questions[0]["id"]]["internal_title"] == "Q1"
+    assert embedded[questions[0]["id"]]["marks"] == "2.50"
+    assert embedded[questions[0]["id"]]["content_json"]["type"] == "doc"
 
     originals = {}
     for item in questions:

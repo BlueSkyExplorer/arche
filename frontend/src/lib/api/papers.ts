@@ -5,7 +5,7 @@ import type { QuestionNumberStyle } from "@/lib/validation/numbering";
 export type PaperSummary = { id: string; title: string; subject: string; level: string; paper_date: string | null; duration_minutes: number | null; template_profile_id: string; status?: string };
 export type PaperQuestion = { id?: string; question_id: string; position: number; marks_override: number | string | null; display_number?: string; question: Question };
 export type PaperSection = { id: string; title: string; position: number; instructions_json?: unknown; questions: PaperQuestion[] };
-export type PaperDetail = PaperSummary & { instructions_json: string | string[] | null; sections: PaperSection[]; template_profile?: { id: string; name: string; typography_config_json?: Record<string, unknown>; numbering_config_json?: { question_style?: QuestionNumberStyle }; question_style_config_json?: Record<string, unknown> } };
+export type PaperDetail = PaperSummary & { instructions_json: string | { text: string }[] | null; sections: PaperSection[]; template_profile?: { id: string; name: string; typography_config_json?: Record<string, unknown>; numbering_config_json?: { question_style?: QuestionNumberStyle }; question_style_config_json?: Record<string, unknown> } };
 export type PaperInput = { title: string; subject: string; level: string; paperDate: string; durationMinutes: number; instructions: string; templateProfileId: string };
 export type ExportRecord = { id: string; status: "pending" | "processing" | "succeeded" | "failed"; format: "docx" | "pdf"; error_message?: string | null };
 

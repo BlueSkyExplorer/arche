@@ -18,6 +18,7 @@ from app.schemas.domain import (
     SectionCreate,
     SectionPatch,
 )
+from app.schemas.question import QuestionRead
 from app.services import papers
 from app.services.numbering import (
     NumberingConfig,
@@ -59,8 +60,13 @@ def detail(db: Session, paper: object) -> PaperDetail:
         PaperSectionDetail(
             **PaperSectionRead.model_validate(section).model_dump(),
             questions=[
-                PaperQuestionRead.model_validate(pq).model_copy(update={"label": labels[pq.id]})
-                for pq, _ in pairs
+                PaperQuestionRead.model_validate(pq).model_copy(
+                    update={
+                        "label": labels[pq.id],
+                        "question": QuestionRead.model_validate(question),
+                    }
+                )
+                for pq, question in pairs
             ],
         )
         for section, pairs in tree

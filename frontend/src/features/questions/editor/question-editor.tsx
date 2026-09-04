@@ -71,7 +71,7 @@ export function QuestionEditor({ value, onChange, onReady, disabled = false }: P
     ["Superscript / 上標", SuperscriptIcon, () => editor.chain().focus().toggleSuperscript().run(), editor.isActive("superscript")],
     ["Bulleted list", List, () => editor.chain().focus().toggleBulletList().run(), editor.isActive("bulletList")],
     ["Numbered list", ListOrdered, () => editor.chain().focus().toggleOrderedList().run(), editor.isActive("orderedList")],
-    ["Insert table", Table2, () => editor.chain().focus().insertTable({ rows: 2, cols: 2 }).run(), false],
+    ["Insert table", Table2, () => editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: false }).run(), false],
     ["Insert image", ImageIcon, addImage, false], ["Insert sub-question", Split, addSubQuestion, false],
     ["Insert answer space", Rows3, () => editor.chain().focus().insertContent({ type: "answerSpace", attrs: { lines: 3 } }).run(), false],
   ] as const;
