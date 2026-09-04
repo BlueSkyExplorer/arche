@@ -7,3 +7,7 @@ build/
 .env*
 !.env.example
 pnpm-debug.log*
+playwright-report/
+test-results/
+tests/e2e/.auth/
+tests/e2e/artifacts/

@@ -85,6 +85,7 @@ pnpm dev
 pnpm lint
 pnpm typecheck
 pnpm test
+pnpm test:e2e
 ```
 
 `package.json` scripts are authoritative. If they differ, update this file.
