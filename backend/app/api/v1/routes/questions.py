@@ -1,17 +1,53 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentUser
 from app.core.deps import get_current_user, get_db
-from app.schemas.question import QuestionCreate, QuestionPatch, QuestionRead
+from app.schemas.question import (
+    QuestionCreate,
+    QuestionIngestDraft,
+    QuestionPatch,
+    QuestionRead,
+)
 from app.services import questions
+from app.services.question_ingest import ingest_question_docx, ingest_question_text
 
 router = APIRouter(prefix="/questions", tags=["questions"])
 User = Annotated[CurrentUser, Depends(get_current_user)]
 Db = Annotated[Session, Depends(get_db)]
+
+
+@router.post("/ingest", response_model=list[QuestionIngestDraft])
+async def question_ingest(
+    current_user: User,
+    db: Db,
+    text: Annotated[str | None, Form()] = None,
+    file: Annotated[UploadFile | None, File()] = None,
+) -> list[QuestionIngestDraft]:
+    """Parse a pasted question set (``text``) or an uploaded ``.docx`` into
+    reviewable Draft questions. Nothing is persisted — teachers review the
+    drafts, then save accepted ones via POST /questions."""
+    if (text is None) == (file is None):
+        raise HTTPException(status_code=422, detail="Provide exactly one of: text, file")
+    if file is not None:
+        filename = (file.filename or "").lower()
+        if not filename.endswith(".docx"):
+            raise HTTPException(status_code=415, detail="Only .docx format files are supported")
+        if ".docm" in filename:
+            raise HTTPException(status_code=415, detail="Macro-enabled documents are not supported")
+        data = await file.read()
+        if len(data) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="File too large (max 10MB)")
+        try:
+            return ingest_question_docx(data)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not text or not text.strip():
+        raise HTTPException(status_code=422, detail="text must not be empty")
+    return ingest_question_text(text)
 
 
 @router.get("", response_model=list[QuestionRead])

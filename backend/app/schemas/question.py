@@ -46,3 +46,18 @@ class QuestionRead(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+
+
+class QuestionIngestDraft(BaseModel):
+    """A parsed-but-unsaved question, returned by POST /questions/ingest.
+
+    Teachers review drafts before saving them via the normal POST /questions.
+    """
+    internal_title: str = Field(min_length=1, max_length=255)
+    subject: str = Field(default="", max_length=100)
+    level: str = Field(default="", max_length=100)
+    tags_json: list[str] = Field(default_factory=list)
+    source_note: str | None = None
+    content_json: DocNode
+    marks: Decimal = Field(ge=0)
+    status: str = Field(default="draft", pattern="^(draft|ready|archived)$")

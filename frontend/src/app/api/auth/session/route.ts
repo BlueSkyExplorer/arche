@@ -11,7 +11,15 @@ export async function POST(request: Request) {
   if (!result.success) {
     return NextResponse.json({ detail: "A valid email and non-empty token are required." }, { status: 400 });
   }
-  const response = NextResponse.redirect(new URL("/papers", request.url), 303);
+  const url = new URL(request.url);
+  // Behind a reverse proxy (Cloudflare tunnel), request.url uses the server's
+  // own hostname (localhost). Prefer forwarded headers so the redirect keeps
+  // the browser on the public origin.
+  const fwdProto = request.headers.get("x-forwarded-proto");
+  const fwdHost = request.headers.get("x-forwarded-host");
+  const origin =
+    fwdProto && fwdHost ? `${fwdProto}://${fwdHost}` : url.origin;
+  const response = NextResponse.redirect(new URL("/papers", origin), 303);
   response.cookies.set(SESSION_COOKIE_NAME, serializeSession(result.data), {
     httpOnly: true,
     sameSite: "lax",
