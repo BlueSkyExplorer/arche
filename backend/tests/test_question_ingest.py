@@ -165,3 +165,19 @@ def test_ingest_endpoint_rejects_docm_and_garbage(api_client) -> None:
     assert (
         api_client.post("/api/v1/questions/ingest").status_code == 422
     )
+
+
+@pytest.mark.db
+def test_ingest_endpoint_accepts_doc(api_client) -> None:
+    # Build a minimal .docx and convert to .doc via the fixture generator
+    from pathlib import Path
+
+    doc_path = Path(__file__).parent / "fixtures" / "school_format.doc"
+    if not doc_path.exists():
+        pytest.skip("school_format.doc fixture not available")
+    doc_bytes = doc_path.read_bytes()
+    response = api_client.post(
+        "/api/v1/questions/ingest",
+        files={"file": ("questions.doc", doc_bytes, "application/msword")},
+    )
+    assert response.status_code == 200, response.text

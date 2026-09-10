@@ -1,8 +1,9 @@
 """Build the synthetic school-format DOCX fixture used by template-import tests.
 
 Run from the repo root (or anywhere):  python scripts/make_fixtures.py
-Output: tests/fixtures/school_format.docx
+Output: tests/fixtures/school_format.docx (and .doc)
 """
+import subprocess
 from pathlib import Path
 
 from docx import Document
@@ -63,6 +64,18 @@ def build() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     doc.save(OUT)
     print(f"wrote {OUT} ({OUT.stat().st_size} bytes)")
+
+    # Also produce a .doc fixture for the conversion tests
+    doc_path = Path(str(OUT).replace(".docx", ".doc"))
+    subprocess.run(
+        [
+            "/opt/data/libreoffice/bin/soffice-arche",
+            "-env:UserInstallation=file:///tmp/arche-lo-profile",
+            "--headless", "--convert-to", "doc", "--outdir", str(OUT.parent), str(OUT),
+        ],
+        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120,
+    )
+    print(f"wrote {doc_path} ({doc_path.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":

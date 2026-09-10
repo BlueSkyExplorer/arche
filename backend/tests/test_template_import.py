@@ -73,3 +73,15 @@ def test_import_endpoint_rejects_docm_and_bad_ext(api_client) -> None:
             ).status_code
             == 415
         )
+
+
+@pytest.mark.db
+def test_import_endpoint_accepts_doc(api_client) -> None:
+    doc_bytes = (FIXTURE_DIR / "school_format.doc").read_bytes()
+    response = api_client.post(
+        "/api/v1/templates/import",
+        files={"file": ("school_format.doc", doc_bytes, "application/msword")},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["profile"]["page_config_json"]["size"] == "A4"
