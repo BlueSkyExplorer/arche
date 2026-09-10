@@ -369,7 +369,7 @@ def test_unlabelled_subquestions_use_configured_style_and_explicit_labels_win() 
 
 
 def test_nested_sub_questions_use_depth2_numbering() -> None:
-    """Sub-questions inside a sub-question should number at depth-2, not reset the depth-1 counter."""
+    """Nested sub-questions use depth-2 counter, not resetting depth-1."""
     content = DocNode.model_validate(
         {
             "type": "doc",
@@ -383,14 +383,20 @@ def test_nested_sub_questions_use_depth2_numbering() -> None:
                             "type": "subQuestion",
                             "attrs": {"label": "(i)"},
                             "content": [
-                                {"type": "paragraph", "content": [{"type": "text", "text": "nested i"}]}
+                                {
+                                    "type": "paragraph",
+                                    "content": [{"type": "text", "text": "nested i"}],
+                                }
                             ],
                         },
                         {
                             "type": "subQuestion",
                             "attrs": {"label": "(ii)"},
                             "content": [
-                                {"type": "paragraph", "content": [{"type": "text", "text": "nested ii"}]}
+                                {
+                                    "type": "paragraph",
+                                    "content": [{"type": "text", "text": "nested ii"}],
+                                }
                             ],
                         },
                     ],

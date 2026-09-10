@@ -9,7 +9,9 @@ from typing import Literal
 from uuid import UUID
 
 NumberingStyle = Literal["arabic-dot", "lower-alpha", "upper-alpha", "roman"]
-QuestionStyle = Literal["1", "1.", "(1)", "Q1", "Q1.", "arabic-dot", "lower-alpha", "upper-alpha", "roman"]
+QuestionStyle = Literal[
+    "1", "1.", "(1)", "Q1", "Q1.", "arabic-dot", "lower-alpha", "upper-alpha", "roman"
+]
 SubQuestionStyle = Literal["a", "a.", "(a)", "arabic-dot", "lower-alpha", "upper-alpha", "roman"]
 
 

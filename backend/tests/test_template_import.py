@@ -45,6 +45,27 @@ def test_import_rejects_empty_bytes() -> None:
         import_template_docx(b"")
 
 
+def test_import_detects_chinese_marks_and_q_numbering() -> None:
+    """Build a DOCX with Chinese marks and Q-numbering; verify the importer detects them."""
+    from io import BytesIO
+
+    from docx import Document as DocxDocument
+
+    doc = DocxDocument()
+    section = doc.sections[0]
+    section.header.paragraphs[0].text = "TEST SCHOOL"
+    # Add a Q-prefixed question with Chinese marks
+    doc.add_paragraph("Q1. 風媒花與蟲媒花的差異。 （2分）")
+    doc.add_paragraph("(a) 花瓣細小。 （1分）")
+    buf = BytesIO()
+    doc.save(buf)
+    draft = import_template_docx(buf.getvalue())
+    assert draft.profile.numbering_config_json.question_style == "Q1."
+    assert draft.profile.numbering_config_json.sub_sub_question_style == "roman"
+    assert draft.profile.question_style_config_json.marks_format == "（{marks}分）"
+    assert draft.profile.question_style_config_json.marks_display == "right"
+
+
 @pytest.mark.db
 def test_import_endpoint_maps_and_returns_draft(api_client) -> None:
     response = api_client.post(
