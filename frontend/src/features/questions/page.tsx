@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QuestionEditor } from "./editor/question-editor";
+import { IngestPanel } from "./ingest-panel";
 import { contentSchema, isValidContent, normalizeContentForWire, type QuestionContent } from "@/lib/validation/content";
 import { ApiError } from "@/lib/api/client";
 import { createQuestion, listQuestions, updateQuestion, type Question, type QuestionInput } from "@/lib/api/questions";
@@ -56,6 +57,7 @@ export default function QuestionsPage({ token }: { token: string }) {
 
   return <main className="mx-auto w-full max-w-6xl p-6">
     <div className="mb-6 flex items-start justify-between gap-4"><div><h1 className="text-2xl font-semibold">Question Library / 題目庫</h1><p className="mt-1 text-sm text-muted-foreground">建立及重用中英文題目。Create and reuse bilingual questions.</p></div><Button onClick={openCreate}><Plus className="size-4" />新增題目</Button></div>
+    <IngestPanel token={token} onSaved={load} />
     {loading ? <div className="rounded-lg border p-8 text-center text-muted-foreground" role="status">Loading questions… / 正在載入…</div> : loadError ? <div role="alert" className="rounded-lg border border-destructive/40 p-6"><p className="text-destructive">{loadError}</p><Button variant="outline" className="mt-4" onClick={() => void load()}><RefreshCw className="size-4" />Retry / 重試</Button></div> : questions.length === 0 ? <div className="rounded-lg border border-dashed p-10 text-center"><h2 className="font-medium">No questions yet / 尚未有題目</h2><p className="mt-1 text-sm text-muted-foreground">Create your first reusable question.</p><Button className="mt-4" onClick={openCreate}>新增題目</Button></div> : <ul className="grid gap-3">{questions.map((question) => <li key={question.id} className="flex items-center justify-between gap-4 rounded-lg border bg-card p-4"><div className="min-w-0"><h2 className="truncate font-medium">{question.internal_title}</h2><p className="mt-1 text-sm text-muted-foreground">{question.subject} · {question.level} · {Number(question.marks)} marks · {question.status}</p>{question.tags_json.length > 0 && <p className="mt-2 text-sm">{question.tags_json.map((tag) => <span key={tag} className="mr-2 rounded-full bg-muted px-2 py-1">{tag}</span>)}</p>}</div><Button variant="outline" onClick={() => openEdit(question)} aria-label={`Edit ${question.internal_title}`}><Pencil className="size-4" />Edit</Button></li>)}</ul>}
     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto"><DialogHeader><DialogTitle>{editing ? "Edit question / 編輯題目" : "New question / 新增題目"}</DialogTitle><DialogDescription>題目內容只會在你按儲存後提交。Content is submitted only when you save.</DialogDescription></DialogHeader>
       <form onSubmit={submit} className="grid gap-5" noValidate>
