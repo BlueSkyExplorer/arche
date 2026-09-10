@@ -26,7 +26,14 @@ export type TemplateProfile = {
 const unwrap = <T,>(response: T[] | { items: T[] }) => Array.isArray(response) ? response : response.items;
 export async function listTemplates(token: string) { return unwrap(await apiFetch<TemplateProfile[] | { items: TemplateProfile[] }>("/api/v1/templates", token)); }
 export function getTemplate(token: string, id: string) { return apiFetch<TemplateProfile>(`/api/v1/templates/${encodeURIComponent(id)}`, token); }
-export function templateToForm(t: TemplateProfile): TemplateFormValues {
+export type TemplateFormSource = Pick<
+  TemplateProfile,
+  | "name" | "school_name" | "logo_asset_id" | "is_active"
+  | "page_config_json" | "typography_config_json" | "header_config_json"
+  | "footer_config_json" | "numbering_config_json" | "question_style_config_json" | "role_styles"
+>;
+
+export function templateToForm(t: TemplateFormSource): TemplateFormValues {
   const sectionHeading = t.role_styles?.SectionHeading;
   return {
     name: t.name, schoolName: t.school_name, logoAssetId: t.logo_asset_id, isActive: t.is_active,
@@ -52,3 +59,19 @@ export function templatePayload(v: TemplateFormValues) { return {
 export function createTemplate(token: string, v: TemplateFormValues) { return apiFetch<TemplateProfile>("/api/v1/templates", token, { method: "POST", body: JSON.stringify(templatePayload(v)) }); }
 export function updateTemplate(token: string, id: string, v: TemplateFormValues) { return apiFetch<TemplateProfile>(`/api/v1/templates/${encodeURIComponent(id)}`, token, { method: "PATCH", body: JSON.stringify(templatePayload(v)) }); }
 export function uploadLogo(token: string, file: File) { const body = new FormData(); body.set("kind", "logo"); body.set("file", file); return apiFetch<{ id: string }>("/api/v1/assets", token, { method: "POST", body }); }
+
+export type TemplateImportResult = {
+  profile: TemplateFormSource;
+  confidence: Record<string, number>;
+  unmapped: string[];
+};
+
+export function importTemplate(token: string, file: File): Promise<TemplateImportResult> {
+  const body = new FormData();
+  body.set("file", file);
+  return apiFetch<TemplateImportResult>("/api/v1/templates/import", token, { method: "POST", body });
+}
+
+export function templateDraftToForm(draft: TemplateImportResult): TemplateFormValues {
+  return templateToForm(draft.profile);
+}
