@@ -10,3 +10,7 @@ dist/
 .agent-briefs/
 .pgdata/
 .storage/
+
+# generated (Next.js / TypeScript build artifacts)
+next-env.d.ts
+*.tsbuildinfo
