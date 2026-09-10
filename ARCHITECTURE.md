@@ -344,6 +344,8 @@ Use XML-level helpers only when necessary for:
 
 Keep these helpers isolated under `backend/app/document/ooxml/` and test them with fixtures.
 
+Uploaded source documents are accepted as `.docx` or legacy `.doc`; `.doc` files are first converted to `.docx` by headless LibreOffice (`app/services/doc_convert.py`, reusing the `LIBREOFFICE_BIN` setting and the same invocation shape as PDF conversion). Macro-enabled `.docm` is rejected.
+
 ## 10. PDF Strategy
 
 PDF is derived output, not the canonical document.

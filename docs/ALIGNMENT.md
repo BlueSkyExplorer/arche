@@ -51,3 +51,14 @@ Both bridges are now usable end-to-end from the UI:
 - **Frontend** — template import wizard (`frontend/src/features/templates/import-wizard.tsx`) with a review banner wired into the existing template dialog, and a bulk question ingest panel (`frontend/src/features/questions/ingest-panel.tsx`) wired into the question library. The ingest panel collects Subject/Level (required before saving) and saves only accepted drafts.
 - **E2E** — `frontend/tests/e2e/import-ingest-flow.spec.ts` covers "import a format DOCX → review → save a template" and "paste a mixed EN/中文 question set → review drafts → save N questions".
 - **C7 AI-assisted structure suggestion remains deferred** (open question — the deterministic happy path is complete without it; `MVP.md §5` treats AI as optional and non-blocking).
+
+## Real school file (2026-09-10)
+
+The user provided a real school exam (余振強紀念中學 中四生物科 參考答案) as a **legacy `.doc`** (not `.docx`). This drove iteration 2:
+
+- **`.doc` support** — `backend/app/services/doc_convert.py` converts `.doc → .docx` via the existing headless LibreOffice (`LIBREOFFICE_BIN`), so both `POST /templates/import` and `POST /questions/ingest` now accept `.doc` **and** `.docx` (still rejecting `.docm`). Covered by `test_doc_convert.py` + endpoint cases.
+- **Real format conventions captured** (deterministic, no LLM): Chinese marks `（X分）` → `marks_format: "（{marks}分）"` + `marks_display: "right"`; `Q1.`/`Q1` question numbering; two-level sub-question `(a)` → `(i)` via a new `sub_sub_question_style` (default `"roman"`) wired through the renderer; question ingest splits `Q1.`/`第N題` questions, skips 甲部/乙部 section headers, and nests `(i)(ii)` under `(a)(b)(c)`.
+
+**Known limitation (important):** the real school file lays its header, `Q` numbering, and marks out inside **tables**, while the importer scans **plain paragraphs**. For that specific file the importer therefore does **not** auto-detect `school_name`, `Q1.` numbering, or Chinese marks (it defaults `school_name="Imported school"`, `question_style="1."`, `marks_format="({marks} marks)"`), and `ingest` returns 0 drafts from the table-based answer key. The answer-key table layout is content, not a reusable paragraph-format template. This is a heuristic limitation, not a bug — the question-paper (non-answer) file is the right input for the "parse questions" half.
+
+Section labels 甲部/乙部 remain **paper-level** section titles (typed by the teacher in the paper builder) — no auto-section-numbering was added (YAGNI).
