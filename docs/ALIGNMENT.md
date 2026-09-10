@@ -42,3 +42,12 @@ This table maps each expectation to the current system behavior, citing the exac
 - PDF/圖片題目抽取 + OCR(`MVP.md §6` 需先 scope change)。
 - 完整匯入既有 DOCX 並推斷模板(`ARCHITECTURE.md §16 #3` — 本計畫做 **best-effort** 版本,不承諾完整)。
 - AI 結構辨識輔助(env 旗標,可審查,非必要)。
+
+## Implementation status (2026-09-10)
+
+Both bridges are now usable end-to-end from the UI:
+
+- **Backend (`9112502`)** — `POST /api/v1/templates/import` (DOCX → template draft, no persist) and `POST /api/v1/questions/ingest` (text/docx → question drafts, no persist), both covered by `test_template_import.py` / `test_question_ingest.py`.
+- **Frontend** — template import wizard (`frontend/src/features/templates/import-wizard.tsx`) with a review banner wired into the existing template dialog, and a bulk question ingest panel (`frontend/src/features/questions/ingest-panel.tsx`) wired into the question library. The ingest panel collects Subject/Level (required before saving) and saves only accepted drafts.
+- **E2E** — `frontend/tests/e2e/import-ingest-flow.spec.ts` covers "import a format DOCX → review → save a template" and "paste a mixed EN/中文 question set → review drafts → save N questions".
+- **C7 AI-assisted structure suggestion remains deferred** (open question — the deterministic happy path is complete without it; `MVP.md §5` treats AI as optional and non-blocking).

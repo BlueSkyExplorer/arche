@@ -248,12 +248,14 @@ GET    /api/v1/templates
 POST   /api/v1/templates
 GET    /api/v1/templates/{id}
 PATCH  /api/v1/templates/{id}
+POST   /api/v1/templates/import
 
 GET    /api/v1/questions
 POST   /api/v1/questions
 GET    /api/v1/questions/{id}
 PATCH  /api/v1/questions/{id}
 DELETE /api/v1/questions/{id}
+POST   /api/v1/questions/ingest
 
 GET    /api/v1/papers
 POST   /api/v1/papers
