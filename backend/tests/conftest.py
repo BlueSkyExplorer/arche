@@ -89,7 +89,11 @@ def template_payload() -> dict[str, Any]:
         },
         "header_config_json": {"text": "Test header"},
         "footer_config_json": {"text": "Test footer", "page_numbering": True},
-        "numbering_config_json": {"question_style": "1.", "sub_question_style": "(a)"},
+        "numbering_config_json": {
+            "question_style": "1.",
+            "sub_question_style": "(a)",
+            "sub_sub_question_style": "roman",
+        },
         "section_style_config_json": {"spacing_before_pt": 6, "spacing_after_pt": 6},
         "question_style_config_json": {
             "spacing_before_pt": 3,

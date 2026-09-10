@@ -33,7 +33,11 @@ def profile(variant: bool = False) -> RenderTemplateProfile:
                 },
                 "header_config_json": {"text": "Mock Examination"},
                 "footer_config_json": {"text": "Confidential", "page_numbering": True},
-                "numbering_config_json": {"question_style": "1.", "sub_question_style": "(a)"},
+                "numbering_config_json": {
+                    "question_style": "1.",
+                    "sub_question_style": "(a)",
+                    "sub_sub_question_style": "roman",
+                },
                 "section_style_config_json": {"spacing_before_pt": 12, "spacing_after_pt": 6},
                 "question_style_config_json": {
                     "spacing_before_pt": 6,
