@@ -8,7 +8,7 @@ export class ApiError extends Error {
 export async function apiFetch<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
-  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(new URL(path, API_BASE_URL), { ...init, headers });
   if (!response.ok) {
