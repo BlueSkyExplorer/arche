@@ -17,7 +17,7 @@ export type TemplateProfile = {
   page_config_json: { size: TemplateFormValues["pageSize"]; margin_top_mm: number; margin_right_mm: number; margin_bottom_mm: number; margin_left_mm: number };
   typography_config_json: { chinese_font: string; latin_font: string; base_font_size_pt: number; line_spacing: number };
   header_config_json: { text: string }; footer_config_json: { text: string; page_numbering: boolean };
-  numbering_config_json: { question_style: TemplateFormValues["questionNumberStyle"]; sub_question_style: TemplateFormValues["subQuestionStyle"] };
+  numbering_config_json: { question_style: TemplateFormValues["questionNumberStyle"]; sub_question_style: TemplateFormValues["subQuestionStyle"]; sub_sub_question_style: TemplateFormValues["subSubQuestionStyle"] };
   section_style_config_json: { spacing_before_pt: number; spacing_after_pt: number };
   question_style_config_json: { spacing_before_pt: number; spacing_after_pt: number; marks_display: TemplateFormValues["marksDisplayStyle"]; marks_format: string; default_answer_lines: number };
   role_styles: Partial<Record<"Normal" | "PaperTitle" | "PaperMetadata" | "SectionHeading" | "QuestionBody" | "QuestionSubpart" | "QuestionMarks" | "AnswerSpace", RoleStyle>>;
@@ -41,7 +41,7 @@ export function templateToForm(t: TemplateFormSource): TemplateFormValues {
     chineseFont: t.typography_config_json.chinese_font, latinFont: t.typography_config_json.latin_font, baseFontSize: t.typography_config_json.base_font_size_pt, lineSpacing: t.typography_config_json.line_spacing,
     headerText: t.header_config_json.text, footerText: t.footer_config_json.text, pageNumbers: t.footer_config_json.page_numbering,
     sectionFontSize: sectionHeading?.size_pt ?? 14, sectionBold: sectionHeading?.bold ?? true, sectionAlignment: sectionHeading?.alignment === "justify" ? "left" : (sectionHeading?.alignment ?? "left"),
-    questionNumberStyle: t.numbering_config_json.question_style, subQuestionStyle: t.numbering_config_json.sub_question_style, marksDisplayStyle: t.question_style_config_json.marks_display,
+    questionNumberStyle: t.numbering_config_json.question_style, subQuestionStyle: t.numbering_config_json.sub_question_style, subSubQuestionStyle: t.numbering_config_json.sub_sub_question_style, marksDisplayStyle: t.question_style_config_json.marks_display,
     marksFormat: t.question_style_config_json.marks_format, spacingBeforeQuestion: t.question_style_config_json.spacing_before_pt, spacingAfterQuestion: t.question_style_config_json.spacing_after_pt, answerSpaceLines: t.question_style_config_json.default_answer_lines,
   };
 }
@@ -51,7 +51,7 @@ export function templatePayload(v: TemplateFormValues) { return {
   page_config_json: { size: v.pageSize, margin_top_mm: v.marginTop, margin_right_mm: v.marginRight, margin_bottom_mm: v.marginBottom, margin_left_mm: v.marginLeft },
   typography_config_json: { chinese_font: v.chineseFont, latin_font: v.latinFont, base_font_size_pt: v.baseFontSize, line_spacing: v.lineSpacing },
   header_config_json: { text: v.headerText }, footer_config_json: { text: v.footerText, page_numbering: v.pageNumbers },
-  numbering_config_json: { question_style: v.questionNumberStyle, sub_question_style: v.subQuestionStyle },
+  numbering_config_json: { question_style: v.questionNumberStyle, sub_question_style: v.subQuestionStyle, sub_sub_question_style: v.subSubQuestionStyle },
   section_style_config_json: { spacing_before_pt: 0, spacing_after_pt: 0 },
   question_style_config_json: { spacing_before_pt: v.spacingBeforeQuestion, spacing_after_pt: v.spacingAfterQuestion, marks_display: v.marksDisplayStyle, marks_format: v.marksFormat, default_answer_lines: v.answerSpaceLines },
   role_styles: { SectionHeading: { size_pt: v.sectionFontSize, bold: v.sectionBold, alignment: v.sectionAlignment } },

@@ -19,8 +19,9 @@ export const templateFormSchema = z.object({
   headerText: z.string(), footerText: z.string(), pageNumbers: z.boolean(),
   sectionFontSize: boundedNumber(8, 36, "Font size must be 8–36 pt"),
   sectionBold: z.boolean(), sectionAlignment: z.enum(["left", "center", "right"]),
-  questionNumberStyle: z.enum(["1", "1.", "(1)", "arabic-dot", "lower-alpha", "upper-alpha", "roman"]),
+  questionNumberStyle: z.enum(["1", "1.", "(1)", "Q1", "Q1.", "arabic-dot", "lower-alpha", "upper-alpha", "roman"]),
   subQuestionStyle: z.enum(["a", "a.", "(a)", "arabic-dot", "lower-alpha", "upper-alpha", "roman"]),
+  subSubQuestionStyle: z.enum(["a", "a.", "(a)", "arabic-dot", "lower-alpha", "upper-alpha", "roman"]),
   marksDisplayStyle: z.enum(["inline", "right", "below"]),
   marksFormat: z.string().refine(value => value.includes("{marks}"), "Marks format must include {marks}"),
   spacingBeforeQuestion: boundedNumber(0, 50, "Spacing must be 0–50 pt"),
@@ -35,6 +36,6 @@ export const templateDefaults: TemplateFormValues = {
   chineseFont: "Noto Sans CJK TC", latinFont: "Arial", baseFontSize: 12, lineSpacing: 1.5,
   headerText: "", footerText: "", pageNumbers: true, sectionFontSize: 14,
   sectionBold: true, sectionAlignment: "left", questionNumberStyle: "arabic-dot",
-  subQuestionStyle: "lower-alpha", marksDisplayStyle: "right", marksFormat: "({marks} marks)",
+  subQuestionStyle: "lower-alpha", subSubQuestionStyle: "roman", marksDisplayStyle: "right", marksFormat: "({marks} marks)",
   spacingBeforeQuestion: 2, spacingAfterQuestion: 2, answerSpaceLines: 3,
 };
