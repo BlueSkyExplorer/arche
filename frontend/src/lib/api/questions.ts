@@ -38,3 +38,24 @@ export async function listQuestions(token: string): Promise<Question[]> {
 }
 export function createQuestion(token: string, input: QuestionInput) { return apiFetch<Question>("/api/v1/questions", token, { method: "POST", body: JSON.stringify(toPayload(input)) }); }
 export function updateQuestion(token: string, id: string, input: QuestionInput) { return apiFetch<Question>(`/api/v1/questions/${encodeURIComponent(id)}`, token, { method: "PATCH", body: JSON.stringify(toPayload(input)) }); }
+
+export type QuestionIngestDraft = {
+  internal_title: string;
+  subject: string;
+  level: string;
+  tags_json: string[];
+  source_note: string | null;
+  content_json: QuestionContent;
+  marks: string | number;
+  status: QuestionStatus;
+};
+
+export function ingestQuestions(
+  token: string,
+  source: { text?: string; file?: File },
+): Promise<QuestionIngestDraft[]> {
+  const body = new FormData();
+  if (source.text !== undefined) body.set("text", source.text);
+  if (source.file) body.set("file", source.file);
+  return apiFetch<QuestionIngestDraft[]>("/api/v1/questions/ingest", token, { method: "POST", body });
+}
