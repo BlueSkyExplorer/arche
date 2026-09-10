@@ -5,6 +5,7 @@ from app.services.numbering import (
     QuestionForNumbering,
     SectionForNumbering,
     format_number,
+    format_question_label,
     number_questions,
     total_marks,
 )
@@ -46,3 +47,8 @@ def test_total_marks_respects_override() -> None:
     questions = [question("a", 1), question("b", 2, "3.5")]
     assert total_marks(questions) == Decimal("5.5")
     assert total_marks(number_questions([SectionForNumbering(1, questions)])) == Decimal("5.5")
+
+
+def test_question_label_q_prefix() -> None:
+    assert format_question_label(1, "Q1.") == "Q1."
+    assert format_question_label(3, "Q1") == "Q3"

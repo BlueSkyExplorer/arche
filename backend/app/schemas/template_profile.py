@@ -45,11 +45,14 @@ class FooterConfig(TextConfig):
 
 class NumberingConfig(StrictConfigModel):
     question_style: Literal[
-        "1", "1.", "(1)", "arabic-dot", "lower-alpha", "upper-alpha", "roman"
+        "1", "1.", "(1)", "Q1", "Q1.", "arabic-dot", "lower-alpha", "upper-alpha", "roman"
     ] = "1."
     sub_question_style: Literal[
         "a", "a.", "(a)", "arabic-dot", "lower-alpha", "upper-alpha", "roman"
     ] = "(a)"
+    sub_sub_question_style: Literal[
+        "a", "a.", "(a)", "arabic-dot", "lower-alpha", "upper-alpha", "roman"
+    ] = "roman"
 
 
 class BlockStyleConfig(StrictConfigModel):

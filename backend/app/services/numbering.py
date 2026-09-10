@@ -9,7 +9,7 @@ from typing import Literal
 from uuid import UUID
 
 NumberingStyle = Literal["arabic-dot", "lower-alpha", "upper-alpha", "roman"]
-QuestionStyle = Literal["1", "1.", "(1)", "arabic-dot", "lower-alpha", "upper-alpha", "roman"]
+QuestionStyle = Literal["1", "1.", "(1)", "Q1", "Q1.", "arabic-dot", "lower-alpha", "upper-alpha", "roman"]
 SubQuestionStyle = Literal["a", "a.", "(a)", "arabic-dot", "lower-alpha", "upper-alpha", "roman"]
 
 
@@ -17,6 +17,7 @@ SubQuestionStyle = Literal["a", "a.", "(a)", "arabic-dot", "lower-alpha", "upper
 class NumberingConfig:
     question_style: QuestionStyle = "arabic-dot"
     sub_question_style: SubQuestionStyle = "lower-alpha"
+    sub_sub_question_style: SubQuestionStyle = "roman"
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +95,10 @@ def format_question_label(value: int, style: QuestionStyle | SubQuestionStyle) -
     """Format every template numbering enum without lossy style folding."""
     if style == "1":
         return str(value)
+    if style == "Q1":
+        return f"Q{value}"
+    if style == "Q1.":
+        return f"Q{value}."
     if style in {"1.", "arabic-dot"}:
         return format_number(value, "arabic-dot")
     if style == "(1)":
