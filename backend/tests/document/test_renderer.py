@@ -368,6 +368,80 @@ def test_unlabelled_subquestions_use_configured_style_and_explicit_labels_win() 
     assert "Custom explicit" in text
 
 
+def test_nested_sub_questions_use_depth2_numbering() -> None:
+    """Sub-questions inside a sub-question should number at depth-2, not reset the depth-1 counter."""
+    content = DocNode.model_validate(
+        {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "subQuestion",
+                    "attrs": {"label": "(a)"},
+                    "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "part a stem"}]},
+                        {
+                            "type": "subQuestion",
+                            "attrs": {"label": "(i)"},
+                            "content": [
+                                {"type": "paragraph", "content": [{"type": "text", "text": "nested i"}]}
+                            ],
+                        },
+                        {
+                            "type": "subQuestion",
+                            "attrs": {"label": "(ii)"},
+                            "content": [
+                                {"type": "paragraph", "content": [{"type": "text", "text": "nested ii"}]}
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "subQuestion",
+                    "attrs": {"label": "(b)"},
+                    "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "part b stem"}]},
+                    ],
+                },
+            ],
+        }
+    )
+    config = profile().config.model_copy(
+        update={
+            "numbering_config_json": TemplateNumberingConfig(
+                question_style="1.", sub_question_style="(a)", sub_sub_question_style="roman"
+            )
+        }
+    )
+    rendered = render_paper(
+        PaperData(
+            title="Nested",
+            sections=(
+                RenderSection(
+                    title="S",
+                    position=1,
+                    questions=(
+                        RenderQuestion(
+                            id=paper().sections[0].questions[0].id,
+                            position=1,
+                            content=content,
+                            marks=Decimal(2),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        profile().model_copy(update={"config": config}),
+        {},
+    )
+    text = "\n".join(p.text for p in Document(BytesIO(rendered)).paragraphs)
+    assert "(a)" in text
+    assert "(i)" in text
+    assert "(ii)" in text
+    assert "(b)" in text
+    # Verify that (b) appears after (ii), not as a continuation of depth-2
+    assert text.index("(b)") > text.index("(ii)")
+
+
 @pytest.mark.parametrize(
     "style", ["1", "1.", "(1)", "arabic-dot", "lower-alpha", "upper-alpha", "roman"]
 )

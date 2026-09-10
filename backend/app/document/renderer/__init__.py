@@ -220,6 +220,8 @@ def _render_list(
     width_mm: float,
     sub_question_index: list[int] | None = None,
     sub_question_style: str = "(a)",
+    sub_sub_question_index: list[int] | None = None,
+    sub_sub_question_style: str = "roman",
 ) -> None:
     start = node.attrs.start if isinstance(node, OrderedListNode) else 1
     for offset, item in enumerate(node.content):
@@ -240,6 +242,8 @@ def _render_list(
                     width_mm - 8,
                     sub_question_index,
                     sub_question_style,
+                    sub_sub_question_index,
+                    sub_sub_question_style,
                 )
             first = False
 
@@ -252,6 +256,8 @@ def _render_table(
     width_mm: float,
     sub_question_index: list[int] | None = None,
     sub_question_style: str = "(a)",
+    sub_sub_question_index: list[int] | None = None,
+    sub_sub_question_style: str = "roman",
 ) -> None:
     table = container.add_table(rows=len(node.content), cols=len(node.content[0].content))
     table.autofit = False
@@ -275,6 +281,8 @@ def _render_table(
                         width_mm / len(row_node.content),
                         sub_question_index,
                         sub_question_style,
+                        sub_sub_question_index,
+                        sub_sub_question_style,
                     )
 
 
@@ -286,6 +294,8 @@ def _render_block(
     width_mm: float,
     sub_question_index: list[int] | None = None,
     sub_question_style: str = "(a)",
+    sub_sub_question_index: list[int] | None = None,
+    sub_sub_question_style: str = "roman",
 ) -> None:
     if isinstance(node, ParagraphNode):
         _fill_paragraph(_new_paragraph(container, "QuestionBody"), node, config, assets, width_mm)
@@ -300,6 +310,8 @@ def _render_block(
             width_mm,
             sub_question_index,
             sub_question_style,
+            sub_sub_question_index,
+            sub_sub_question_style,
         )
     elif isinstance(node, TableNode):
         _render_table(
@@ -310,6 +322,8 @@ def _render_block(
             width_mm,
             sub_question_index,
             sub_question_style,
+            sub_sub_question_index,
+            sub_sub_question_style,
         )
     elif isinstance(node, ImageNode):
         _add_inline(_new_paragraph(container, "QuestionBody"), node, config, assets, width_mm)
@@ -321,6 +335,8 @@ def _render_block(
             sub_question_index[0],
             sub_question_style,  # type: ignore[arg-type]
         )
+        if sub_sub_question_index is None:
+            sub_sub_question_index = [0]
         paragraph = _new_paragraph(container, "QuestionSubpart")
         paragraph.add_run(f"{label} ")
         for index, child in enumerate(node.content):
@@ -333,8 +349,8 @@ def _render_block(
                     config,
                     assets,
                     width_mm - 8,
-                    sub_question_index,
-                    sub_question_style,
+                    sub_sub_question_index,
+                    sub_sub_question_style,
                 )
     elif isinstance(node, AnswerSpaceNode):
         heights = (
@@ -436,6 +452,7 @@ def render_paper(
             else:
                 document.add_paragraph(label, style="QuestionBody")
             sub_question_index = [0]
+            sub_sub_question_index = [0]
             for block in blocks:
                 _render_block(
                     document,
@@ -445,6 +462,8 @@ def render_paper(
                     available_width,
                     sub_question_index,
                     config.numbering_config_json.sub_question_style,
+                    sub_sub_question_index,
+                    config.numbering_config_json.sub_sub_question_style,
                 )
             if (
                 config.question_style_config_json.default_answer_lines > 0
