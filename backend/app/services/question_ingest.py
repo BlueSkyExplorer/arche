@@ -15,8 +15,15 @@ from docx import Document
 from app.schemas.content import DocNode
 from app.schemas.question import QuestionIngestDraft
 
-_QUEST_START = re.compile(r"^\s*(\d+)[.)、．]\s+")
-_SUB_START = re.compile(r"^\s*\(?([a-zA-Z一二三四五六七八九十]+)\)?[.、．)]\s+")
+_QUEST_START = re.compile(
+    r"^\s*(?:Q(\d+)[.)]|第?\s*(\d+)\s*[題、.．)]|(\d+)[.)、．])\s"
+)
+_SECTION_HEADER = re.compile(
+    r"^\s*(?:第[一二三四五六七八九十百]+[部章節]|[甲乙丙丁戊己庚辛壬癸]部|Part\s+[A-Z])\b",
+    re.IGNORECASE,
+)
+_SUB_LEVEL1 = re.compile(r"^\s*\(?([a-zA-Z])\)?[.、．)]\s")
+_SUB_LEVEL2 = re.compile(r"^\s*\(?(i{1,3}|iv|v|vi{0,3}|ix|x|I{1,3}|IV|V|VI{0,3}|IX|X)\)?[.、．)]\s")
 _MARKS_EN = re.compile(r"\((\d+(?:\.\d+)?)\s*marks?\)", re.IGNORECASE)
 _MARKS_ZH = re.compile(r"（(\d+(?:\.\d+)?)\s*分）")
 _WHITESPACE = re.compile(r"\s+")
@@ -55,10 +62,15 @@ def _build_doc(blocks: list[dict]) -> DocNode:
 
 
 def _split_questions(paragraphs: list[str]) -> list[list[str]]:
-    """Group paragraphs into question blocks, keyed on top-level numbers."""
+    """Group paragraphs into question blocks, skipping section headers."""
     questions: list[list[str]] = []
     current: list[str] = []
     for para in paragraphs:
+        if _SECTION_HEADER.match(para):
+            if current:
+                questions.append(current)
+                current = []
+            continue
         if _QUEST_START.match(para):
             if current:
                 questions.append(current)
@@ -76,6 +88,7 @@ def _draft_from_block(block: list[str], index: int) -> QuestionIngestDraft:
     blocks: list[dict] = []
     current_para: list[str] = []
     current_sub: dict | None = None
+    current_subsub: dict | None = None
 
     def flush_para() -> None:
         nonlocal current_para
@@ -85,22 +98,36 @@ def _draft_from_block(block: list[str], index: int) -> QuestionIngestDraft:
         current_para = []
         if not text:
             return
-        if current_sub is not None:
-            current_sub["content"].append(_paragraph_node(text))
+        target = current_subsub or current_sub
+        if target is not None:
+            target["content"].append(_paragraph_node(text))
         else:
             blocks.append(_paragraph_node(text))
 
     for line in block:
-        match = _SUB_START.match(line)
-        if match:
+        sub2_match = _SUB_LEVEL2.match(line)
+        sub1_match = _SUB_LEVEL1.match(line)
+        if sub2_match and current_sub is not None:
+            flush_para()
+            current_subsub = {
+                "type": "subQuestion",
+                "attrs": {"label": _normalize_label(sub2_match.group(1))},
+                "content": [],
+            }
+            current_sub["content"].append(current_subsub)
+            sub_text = _SUB_LEVEL2.sub("", line).strip()
+            if sub_text:
+                current_subsub["content"].append(_paragraph_node(sub_text))
+        elif sub1_match:
             flush_para()
             current_sub = {
                 "type": "subQuestion",
-                "attrs": {"label": _normalize_label(match.group(1))},
+                "attrs": {"label": _normalize_label(sub1_match.group(1))},
                 "content": [],
             }
+            current_subsub = None
             blocks.append(current_sub)
-            sub_text = _SUB_START.sub("", line).strip()
+            sub_text = _SUB_LEVEL1.sub("", line).strip()
             if sub_text:
                 current_sub["content"].append(_paragraph_node(sub_text))
         else:

@@ -8,9 +8,18 @@ from app.services.question_ingest import ingest_question_text
 MIXED = """1. Solve 2 + 2. (2 marks)
 
 a) 2
+
 b) 4
 
 2. 計算 12 × 4。 （2分）
+"""
+
+NESTED = """Q1. 風媒花與蟲媒花的差異。 （2分）
+
+(a) 花瓣：風媒花細小。 （1分）
+(b) 柱頭：
+(i) 呈羽狀。
+(ii) 帶黏性。 （2分）
 """
 
 
@@ -169,7 +178,6 @@ def test_ingest_endpoint_rejects_docm_and_garbage(api_client) -> None:
 
 @pytest.mark.db
 def test_ingest_endpoint_accepts_doc(api_client) -> None:
-    # Build a minimal .docx and convert to .doc via the fixture generator
     from pathlib import Path
 
     doc_path = Path(__file__).parent / "fixtures" / "school_format.doc"
@@ -181,3 +189,25 @@ def test_ingest_endpoint_accepts_doc(api_client) -> None:
         files={"file": ("questions.doc", doc_bytes, "application/msword")},
     )
     assert response.status_code == 200, response.text
+
+
+def test_splits_q_prefixed_and_nested_subparts() -> None:
+    drafts = ingest_question_text(NESTED)
+    assert len(drafts) == 1
+    q = drafts[0]
+    types = [n.type for n in q.content_json.content]
+    assert "subQuestion" in types
+    # Find sub-question (b) which should contain nested sub-questions
+    subs = [n for n in q.content_json.content if n.type == "subQuestion"]
+    # (a) and (b)
+    assert len(subs) == 2
+    b = next(n for n in subs if getattr(n.attrs, "label", "") == "(b)")
+    inner = [n for n in b.content if n.type == "subQuestion"]
+    assert [getattr(n.attrs, "label", "") for n in inner] == ["(i)", "(ii)"]
+    assert q.marks == Decimal("2")
+
+
+def test_skips_section_headers() -> None:
+    text = "甲部　多項選擇題\n\n1. Solve x. (1 mark)\n\n乙部　結構題\n\n2. Draw. (1 mark)\n"
+    drafts = ingest_question_text(text)
+    assert len(drafts) == 2
