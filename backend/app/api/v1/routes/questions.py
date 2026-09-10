@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Respon
 from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentUser
+from app.core.config import Settings, get_settings
 from app.core.deps import get_current_user, get_db
 from app.schemas.question import (
     QuestionCreate,
@@ -13,34 +14,35 @@ from app.schemas.question import (
     QuestionRead,
 )
 from app.services import questions
+from app.services.doc_convert import convert_doc_to_docx
 from app.services.question_ingest import ingest_question_docx, ingest_question_text
+from app.services.uploads import validate_document_upload
 
 router = APIRouter(prefix="/questions", tags=["questions"])
 User = Annotated[CurrentUser, Depends(get_current_user)]
 Db = Annotated[Session, Depends(get_db)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
 @router.post("/ingest", response_model=list[QuestionIngestDraft])
 async def question_ingest(
     current_user: User,
     db: Db,
+    settings: SettingsDep,
     text: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
 ) -> list[QuestionIngestDraft]:
-    """Parse a pasted question set (``text``) or an uploaded ``.docx`` into
+    """Parse a pasted question set (``text``) or an uploaded ``.doc/.docx`` into
     reviewable Draft questions. Nothing is persisted — teachers review the
     drafts, then save accepted ones via POST /questions."""
     if (text is None) == (file is None):
         raise HTTPException(status_code=422, detail="Provide exactly one of: text, file")
     if file is not None:
         filename = (file.filename or "").lower()
-        if not filename.endswith(".docx"):
-            raise HTTPException(status_code=415, detail="Only .docx format files are supported")
-        if ".docm" in filename:
-            raise HTTPException(status_code=415, detail="Macro-enabled documents are not supported")
         data = await file.read()
-        if len(data) > 10 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="File too large (max 10MB)")
+        ext = validate_document_upload(filename, len(data))
+        if ext == ".doc":
+            data = convert_doc_to_docx(data, settings)
         try:
             return ingest_question_docx(data)
         except ValueError as exc:

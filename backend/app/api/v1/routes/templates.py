@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentUser
+from app.core.config import Settings, get_settings
 from app.core.deps import get_current_user, get_db
 from app.schemas.template_profile import (
     TemplateProfileCreate,
@@ -12,11 +13,14 @@ from app.schemas.template_profile import (
     TemplateProfileRead,
 )
 from app.services import templates
+from app.services.doc_convert import convert_doc_to_docx
 from app.services.template_import import TemplateImportDraft, import_template_docx
+from app.services.uploads import validate_document_upload
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 User = Annotated[CurrentUser, Depends(get_current_user)]
 Db = Annotated[Session, Depends(get_db)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
 @router.get("", response_model=list[TemplateProfileRead])
@@ -35,26 +39,24 @@ def template_create(data: TemplateProfileCreate, current_user: User, db: Db) -> 
 async def template_import(
     current_user: User,
     db: Db,
+    settings: SettingsDep,
     file: Annotated[UploadFile, File()],
 ) -> TemplateImportDraft:
-    """Best-effort: map an uploaded school-format .docx into a template draft.
+    """Best-effort: map an uploaded school-format .doc/.docx into a template draft.
 
     Nothing is persisted (teacher reviews the draft, then saves via POST
     /templates). Rejects .docm (macro-enabled) and oversized uploads.
     """
     filename = (file.filename or "").lower()
-    if not filename.endswith(".docx"):
-        raise HTTPException(status_code=415, detail="Only .docx format files are supported")
-    if filename.endswith(".docm") or ".docm" in filename:
-        raise HTTPException(status_code=415, detail="Macro-enabled documents are not supported")
     data = await file.read()
-    if len(data) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large (max 10MB)")
+    ext = validate_document_upload(filename, len(data))
     if not data:
         raise HTTPException(status_code=400, detail="Empty file")
+    if ext == ".doc":
+        data = convert_doc_to_docx(data, settings)
     try:
         return import_template_docx(data)
-    except Exception as exc:  # noqa: BLE001 - surface controlled error
+    except Exception as exc:  # noqa: BLE001 - controlled error
         raise HTTPException(status_code=422, detail=f"Could not parse DOCX: {exc}") from exc
 
 
