@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from decimal import Decimal
 from io import BytesIO
+from typing import Any
 
 from docx import Document
 
@@ -35,6 +36,108 @@ def _extract_marks(text: str) -> Decimal:
         if match:
             return Decimal(match.group(1))
     return Decimal("0")
+
+
+_QUESTION_LABEL = re.compile(r"^\s*Q\s*(\d+)\s*[.)]?\s*$", re.IGNORECASE)
+_SUB_LABEL_ONLY = re.compile(r"^\s*\(?([a-zA-Z])\)?\s*$")
+_SUBSUB_LABEL_ONLY = re.compile(
+    r"^\s*\(?\s*(i{1,3}|iv|v|vi{0,3}|ix|x|I{1,3}|IV|V|VI{0,3}|IX|X)\s*\)?\s*$"
+)
+
+
+def _classify_cells(cells: list[str]) -> tuple[str, str, str, str, str]:
+    """Return (q_label, sub_label, subsub_label, text, marks_text) for one row."""
+    q = sub = subsub = marks = ""
+    parts: list[str] = []
+    for raw in cells:
+        c = raw.strip()
+        if not c:
+            continue
+        if _QUESTION_LABEL.match(c):
+            q = c
+        elif _SUBSUB_LABEL_ONLY.match(c) and sub:
+            subsub = c
+        elif _SUB_LABEL_ONLY.match(c):
+            sub = c
+        elif _MARKS_ZH.search(c) or _MARKS_EN.search(c):
+            marks = f"{marks} {c}".strip()
+        else:
+            parts.append(c)
+    return q, sub, subsub, " ".join(parts), marks
+
+
+def _table_to_drafts(tables: Any) -> list[QuestionIngestDraft]:
+    """Parse the [Q, sub, sub-sub, answer, marks] table shape into drafts.
+
+    Tables with no ``Q<num>.`` cell (e.g. the MC answer grid) are skipped.
+    """
+    drafts: list[QuestionIngestDraft] = []
+    current: dict | None = None
+    current_index = 0
+
+    def new_question(q_label: str) -> dict:
+        return {"label": q_label, "total": Decimal("0"), "blocks": [], "sub": None, "subsub": None}
+
+    def add_text(text: str) -> None:
+        if not text or current is None:
+            return
+        node = _paragraph_node(text)
+        target = current["subsub"] or current["sub"]
+        if target is not None:
+            target["content"].append(node)
+        else:
+            current["blocks"].append(node)
+
+    def finish() -> None:
+        nonlocal current
+        if current is None:
+            return
+        blocks = current["blocks"]
+        if not blocks:
+            blocks = [_paragraph_node("")]
+        drafts.append(
+            QuestionIngestDraft(
+                internal_title=_title_from(current["label"], current_index + 1),
+                subject="", level="", tags_json=[], source_note=None,
+                marks=current["total"], status="draft",
+                content_json=_build_doc(blocks),
+            )
+        )
+
+    for table in tables:
+        if not any(_QUESTION_LABEL.match(c.text) for row in table.rows for c in row.cells):
+            continue  # not the structured-question layout
+        for row in table.rows:
+            q, sub, subsub, text, marks_cell = _classify_cells([c.text for c in row.cells])
+            if q:
+                if current is not None:
+                    finish()
+                    current_index += 1
+                current = new_question(q)
+            if current is None:
+                continue
+            if sub:
+                current["sub"] = {
+                    "type": "subQuestion",
+                    "attrs": {"label": _normalize_label(sub)},
+                    "content": [],
+                }
+                current["blocks"].append(current["sub"])
+                current["subsub"] = None
+            if subsub and current["sub"] is not None:
+                current["subsub"] = {
+                    "type": "subQuestion",
+                    "attrs": {"label": _normalize_label(subsub)},
+                    "content": [],
+                }
+                current["sub"]["content"].append(current["subsub"])
+            if text:
+                add_text(text)
+            if marks_cell:
+                current["total"] += _extract_marks(marks_cell)
+    if current is not None:
+        finish()
+    return drafts
 
 
 def _normalize_label(raw: str) -> str:
@@ -159,10 +262,14 @@ def ingest_question_text(text: str) -> list[QuestionIngestDraft]:
 
 
 def ingest_question_docx(data: bytes) -> list[QuestionIngestDraft]:
-    """Split paragraphs from an uploaded .docx into reviewable drafts."""
+    """Split paragraphs AND tables from an uploaded .docx into reviewable drafts."""
     if not data or not data[:4] == b"PK\x03\x04":
         raise ValueError("not a valid DOCX file")
     doc = Document(BytesIO(data))
     paragraphs = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
-    questions = _split_questions(paragraphs)
-    return [_draft_from_block(block, i + 1) for i, block in enumerate(questions)]
+    paragraph_drafts = [
+        _draft_from_block(block, i + 1)
+        for i, block in enumerate(_split_questions(paragraphs))
+    ]
+    table_drafts = _table_to_drafts(doc.tables)
+    return paragraph_drafts + table_drafts

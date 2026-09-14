@@ -211,3 +211,44 @@ def test_skips_section_headers() -> None:
     text = "甲部　多項選擇題\n\n1. Solve x. (1 mark)\n\n乙部　結構題\n\n2. Draw. (1 mark)\n"
     drafts = ingest_question_text(text)
     assert len(drafts) == 2
+
+
+def test_ingests_table_answers_with_nested_subparts() -> None:
+    from io import BytesIO
+
+    from docx import Document as DocxDocument
+
+    from app.services.question_ingest import ingest_question_docx
+
+    doc = DocxDocument()
+    t = doc.add_table(rows=3, cols=5)
+    # row 0: Q1 (a)
+    t.cell(0, 0).text = "Q1."
+    t.cell(0, 1).text = "(a)"
+    t.cell(0, 3).text = "風媒花花瓣細小"
+    t.cell(0, 4).text = "（1分）"
+    # row 1: Q1 (b)
+    t.cell(1, 1).text = "(b)"
+    t.cell(1, 3).text = "後代存有較多遺傳變異"
+    t.cell(1, 4).text = "（1分）"
+    # row 2: Q2 (a) (i)
+    t.cell(2, 0).text = "Q2."
+    t.cell(2, 1).text = "(a)"
+    t.cell(2, 2).text = "(i)"
+    t.cell(2, 3).text = "種子透過動物散播"
+    t.cell(2, 4).text = "（1分）"
+    buf = BytesIO()
+    doc.save(buf)
+
+    drafts = ingest_question_docx(buf.getvalue())
+    assert len(drafts) == 2
+    q1, q2 = drafts
+    assert q1.marks == Decimal("2")  # sum of sub-part marks
+    assert q2.marks == Decimal("1")
+    top_types = [n.type for n in q1.content_json.content]
+    assert top_types == ["subQuestion", "subQuestion"]
+    labels = [n.attrs.label for n in q1.content_json.content]
+    assert labels == ["(a)", "(b)"]
+    q2_sub = q2.content_json.content[0]
+    inner = [n.attrs.label for n in q2_sub.content if n.type == "subQuestion"]
+    assert inner == ["(i)"]
