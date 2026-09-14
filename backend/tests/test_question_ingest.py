@@ -213,6 +213,30 @@ def test_skips_section_headers() -> None:
     assert len(drafts) == 2
 
 
+def test_ingests_table_row_with_marks_but_empty_answer() -> None:
+    from io import BytesIO
+
+    from docx import Document as DocxDocument
+
+    from app.services.question_ingest import ingest_question_docx
+
+    doc = DocxDocument()
+    t = doc.add_table(rows=1, cols=5)
+    t.cell(0, 0).text = "Q1."
+    t.cell(0, 1).text = "(a)"
+    t.cell(0, 3).text = ""  # empty answer text
+    t.cell(0, 4).text = "(1分) x3"  # marks only
+    buf = BytesIO()
+    doc.save(buf)
+
+    drafts = ingest_question_docx(buf.getvalue())
+    assert len(drafts) == 1
+    assert drafts[0].marks == Decimal("1")
+    sub = drafts[0].content_json.content[0]
+    assert sub.type == "subQuestion"
+    assert len(sub.content) >= 1  # placeholder added; no empty-content crash
+
+
 def test_ingests_table_answers_with_nested_subparts() -> None:
     from io import BytesIO
 
@@ -226,17 +250,17 @@ def test_ingests_table_answers_with_nested_subparts() -> None:
     t.cell(0, 0).text = "Q1."
     t.cell(0, 1).text = "(a)"
     t.cell(0, 3).text = "風媒花花瓣細小"
-    t.cell(0, 4).text = "（1分）"
+    t.cell(0, 4).text = "(1分)"
     # row 1: Q1 (b)
     t.cell(1, 1).text = "(b)"
     t.cell(1, 3).text = "後代存有較多遺傳變異"
-    t.cell(1, 4).text = "（1分）"
+    t.cell(1, 4).text = "(1分)"
     # row 2: Q2 (a) (i)
     t.cell(2, 0).text = "Q2."
     t.cell(2, 1).text = "(a)"
     t.cell(2, 2).text = "(i)"
     t.cell(2, 3).text = "種子透過動物散播"
-    t.cell(2, 4).text = "（1分）"
+    t.cell(2, 4).text = "(1分)"
     buf = BytesIO()
     doc.save(buf)
 

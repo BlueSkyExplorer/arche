@@ -25,7 +25,7 @@ LETTER_HEIGHT_MM = 279.4
 _TOP_LEVEL_NUMBER = re.compile(r"^\s*\d+[.)、．]\s")
 _SUB_LEVEL_NUMBER = re.compile(r"^\s*\(?[a-zＡ-Ｚ一二三四五六]\)?[.)、．]?\s", re.IGNORECASE)
 _ANSWER_LINE = re.compile(r"_{3,}|…{3,}|答.?[：:]\s*$")
-_MARKS_ZH = re.compile(r"（\s*(\d+(?:\.\d+)?)\s*分\s*）")
+_MARKS_ZH = re.compile(r"[（(]\s*(\d+(?:\.\d+)?)\s*分\s*[）)]")
 
 
 def _emus_to_mm(value: Length | None, default: float) -> float:
@@ -132,7 +132,7 @@ def import_template_docx(data: bytes) -> TemplateImportDraft:
     q_confidence = 0.3
     s_confidence = 0.3
     for t in body_paras:
-        if re.match(r"^\s*Q\d+[.)]\s", t, re.IGNORECASE):
+        if re.match(r"^\s*Q\d+[.)](?:\s|$)", t, re.IGNORECASE):
             question_style, q_confidence = "Q1.", 0.85
         elif re.match(r"^\s*\(\d+\)\s", t):
             question_style, q_confidence = "(1)", 0.8

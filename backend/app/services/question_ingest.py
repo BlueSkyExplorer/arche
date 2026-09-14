@@ -26,7 +26,7 @@ _SECTION_HEADER = re.compile(
 _SUB_LEVEL1 = re.compile(r"^\s*\(?([a-zA-Z])\)?[.、．)]\s")
 _SUB_LEVEL2 = re.compile(r"^\s*\(?(i{1,3}|iv|v|vi{0,3}|ix|x|I{1,3}|IV|V|VI{0,3}|IX|X)\)?[.、．)]\s")
 _MARKS_EN = re.compile(r"\((\d+(?:\.\d+)?)\s*marks?\)", re.IGNORECASE)
-_MARKS_ZH = re.compile(r"（(\d+(?:\.\d+)?)\s*分）")
+_MARKS_ZH = re.compile(r"[（(](\d+(?:\.\d+)?)\s*分[）)]")
 _WHITESPACE = re.compile(r"\s+")
 
 
@@ -95,6 +95,8 @@ def _table_to_drafts(tables: Any) -> list[QuestionIngestDraft]:
         blocks = current["blocks"]
         if not blocks:
             blocks = [_paragraph_node("")]
+        for block in blocks:
+            _fill_empty_subquestions(block)
         drafts.append(
             QuestionIngestDraft(
                 internal_title=_title_from(current["label"], current_index + 1),
@@ -150,6 +152,15 @@ def _normalize_label(raw: str) -> str:
 
 def _paragraph_node(text: str) -> dict:
     return {"type": "paragraph", "content": [{"type": "text", "text": text}]}
+
+
+def _fill_empty_subquestions(block: dict) -> None:
+    """Ensure every subQuestion node has ≥1 child block (schema enforces min_length=1)."""
+    if block.get("type") == "subQuestion" and not block.get("content"):
+        block["content"] = [_paragraph_node("")]
+    for child in block.get("content", []):
+        if isinstance(child, dict):
+            _fill_empty_subquestions(child)
 
 
 def _title_from(first_line: str, index: int) -> str:

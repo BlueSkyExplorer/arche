@@ -75,8 +75,8 @@ def test_import_reads_table_text_and_body_school_name() -> None:
     # no section-header text; school name lives in the first body paragraph
     doc.add_paragraph("余振強紀念中學")
     table = doc.add_table(rows=1, cols=2)
-    table.cell(0, 0).text = "Q1. 風媒花與蟲媒花的差異"
-    table.cell(0, 1).text = "（2分）"
+    table.cell(0, 0).text = "Q1."
+    table.cell(0, 1).text = "(2分)"
     buf = BytesIO()
     doc.save(buf)
     draft = import_template_docx(buf.getvalue())
