@@ -69,6 +69,18 @@ def _collect_text(container: Any) -> list[str]:
     return [p.text.strip() for p in container.paragraphs if p.text and p.text.strip()]
 
 
+def _collect_all_text(doc: Any) -> list[str]:
+    """Body text from top-level paragraphs AND table cells (in reading order)."""
+    texts = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    if p.text and p.text.strip():
+                        texts.append(p.text.strip())
+    return texts
+
+
 def _has_page_field(paragraph: Any) -> bool:
     xml = paragraph._p.xml
     return " PAGE " in xml or 'instrText' in xml and "PAGE" in xml
@@ -109,7 +121,13 @@ def import_template_docx(data: bytes) -> TemplateImportDraft:
     footer_page = any(_has_page_field(p) for p in section.footer.paragraphs)
 
     # Numbering hints from body text ("1." vs "(1)", "(a)" vs "a)").
-    body_paras = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
+    body_paras = _collect_all_text(doc)
+    school_name = header_text
+    if not school_name:
+        for t in body_paras:
+            if t and len(t) <= 40 and not _MARKS_ZH.search(t):
+                school_name = t
+                break
     question_style, sub_question_style = "1.", "(a)"
     q_confidence = 0.3
     s_confidence = 0.3
@@ -157,7 +175,7 @@ def import_template_docx(data: bytes) -> TemplateImportDraft:
     profile = TemplateProfileCreate.model_validate(
         {
             "name": "Imported from DOCX",
-            "school_name": header_text or "Imported school",
+            "school_name": school_name or "Imported school",
             "page_config_json": page,
             "typography_config_json": typography,
             "header_config_json": {"text": header_text},

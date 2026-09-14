@@ -66,6 +66,25 @@ def test_import_detects_chinese_marks_and_q_numbering() -> None:
     assert draft.profile.question_style_config_json.marks_display == "right"
 
 
+def test_import_reads_table_text_and_body_school_name() -> None:
+    from io import BytesIO
+
+    from docx import Document as DocxDocument
+
+    doc = DocxDocument()
+    # no section-header text; school name lives in the first body paragraph
+    doc.add_paragraph("余振強紀念中學")
+    table = doc.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "Q1. 風媒花與蟲媒花的差異"
+    table.cell(0, 1).text = "（2分）"
+    buf = BytesIO()
+    doc.save(buf)
+    draft = import_template_docx(buf.getvalue())
+    assert draft.profile.school_name == "余振強紀念中學"
+    assert draft.profile.numbering_config_json.question_style == "Q1."
+    assert draft.profile.question_style_config_json.marks_format == "（{marks}分）"
+
+
 @pytest.mark.db
 def test_import_endpoint_maps_and_returns_draft(api_client) -> None:
     response = api_client.post(
