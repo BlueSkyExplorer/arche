@@ -237,6 +237,38 @@ def test_ingests_table_row_with_marks_but_empty_answer() -> None:
     assert len(sub.content) >= 1  # placeholder added; no empty-content crash
 
 
+def test_ingests_subsub_continuation_row() -> None:
+    from io import BytesIO
+
+    from docx import Document as DocxDocument
+
+    from app.services.question_ingest import ingest_question_docx
+
+    doc = DocxDocument()
+    t = doc.add_table(rows=2, cols=5)
+    # row 0: Q1 (c) (i)
+    t.cell(0, 0).text = "Q1."
+    t.cell(0, 1).text = "(c)"
+    t.cell(0, 2).text = "(i)"
+    t.cell(0, 3).text = "種子透過動物散播"
+    t.cell(0, 4).text = "(1分)"
+    # row 1: continuation — sub-part cell empty, only (ii)
+    t.cell(1, 2).text = "(ii)"
+    t.cell(1, 3).text = "避免擠迫的生長環境"
+    t.cell(1, 4).text = "(1分)"
+    buf = BytesIO()
+    doc.save(buf)
+
+    drafts = ingest_question_docx(buf.getvalue())
+    assert len(drafts) == 1
+    q = drafts[0]
+    assert q.marks == Decimal("2")
+    c = q.content_json.content[0]
+    assert c.type == "subQuestion" and c.attrs.label == "(c)"
+    inner = [n.attrs.label for n in c.content if n.type == "subQuestion"]
+    assert inner == ["(i)", "(ii)"]
+
+
 def test_ingests_table_answers_with_nested_subparts() -> None:
     from io import BytesIO
 

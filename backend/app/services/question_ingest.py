@@ -45,8 +45,12 @@ _SUBSUB_LABEL_ONLY = re.compile(
 )
 
 
-def _classify_cells(cells: list[str]) -> tuple[str, str, str, str, str]:
-    """Return (q_label, sub_label, subsub_label, text, marks_text) for one row."""
+def _classify_cells(cells: list[str], has_sub: bool = False) -> tuple[str, str, str, str, str]:
+    """Return (q_label, sub_label, subsub_label, text, marks_text) for one row.
+
+    ``has_sub`` lets a continuation row (whose sub-part cell is empty but whose
+    sub-sub-part cell is set, e.g. ``(ii)``) attach to the current sub-part.
+    """
     q = sub = subsub = marks = ""
     parts: list[str] = []
     for raw in cells:
@@ -55,7 +59,7 @@ def _classify_cells(cells: list[str]) -> tuple[str, str, str, str, str]:
             continue
         if _QUESTION_LABEL.match(c):
             q = c
-        elif _SUBSUB_LABEL_ONLY.match(c) and sub:
+        elif _SUBSUB_LABEL_ONLY.match(c) and (sub or has_sub):
             subsub = c
         elif _SUB_LABEL_ONLY.match(c):
             sub = c
@@ -110,7 +114,10 @@ def _table_to_drafts(tables: Any) -> list[QuestionIngestDraft]:
         if not any(_QUESTION_LABEL.match(c.text) for row in table.rows for c in row.cells):
             continue  # not the structured-question layout
         for row in table.rows:
-            q, sub, subsub, text, marks_cell = _classify_cells([c.text for c in row.cells])
+            q, sub, subsub, text, marks_cell = _classify_cells(
+                [c.text for c in row.cells],
+                has_sub=current is not None and current["sub"] is not None,
+            )
             if q:
                 if current is not None:
                     finish()
