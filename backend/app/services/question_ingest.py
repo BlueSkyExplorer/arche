@@ -27,15 +27,28 @@ _SUB_LEVEL1 = re.compile(r"^\s*\(?([a-zA-Z])\)?[.、．)]\s")
 _SUB_LEVEL2 = re.compile(r"^\s*\(?(i{1,3}|iv|v|vi{0,3}|ix|x|I{1,3}|IV|V|VI{0,3}|IX|X)\)?[.、．)]\s")
 _MARKS_EN = re.compile(r"\((\d+(?:\.\d+)?)\s*marks?\)", re.IGNORECASE)
 _MARKS_ZH = re.compile(r"[（(](\d+(?:\.\d+)?)\s*分[）)]")
+_MULTIPLIER = re.compile(r"\s*[x×]\s*(\d+(?:\.\d+)?)")
 _WHITESPACE = re.compile(r"\s+")
 
 
 def _extract_marks(text: str) -> Decimal:
+    """Sum all mark tokens, applying xN/×N multipliers when present.
+
+    Handles patterns like ``(1分)x3`` or ``(2 marks)×2`` — the multiplier
+    immediately following a mark token means the per-answer mark times N
+    acceptable answers.  When no multiplier follows, the mark stands alone.
+    """
+    total = Decimal("0")
     for pattern in (_MARKS_EN, _MARKS_ZH):
-        match = pattern.search(text)
-        if match:
-            return Decimal(match.group(1))
-    return Decimal("0")
+        for match in pattern.finditer(text):
+            base = Decimal(match.group(1))
+            # Look for a multiplier right after the mark token
+            after = text[match.end() :]
+            mult_match = _MULTIPLIER.match(after)
+            if mult_match:
+                base *= Decimal(mult_match.group(1))
+            total += base
+    return total
 
 
 _QUESTION_LABEL = re.compile(r"^\s*Q\s*(\d+)\s*[.)]?\s*$", re.IGNORECASE)
@@ -205,7 +218,10 @@ def _split_questions(paragraphs: list[str]) -> list[list[str]]:
 
 def _draft_from_block(block: list[str], index: int) -> QuestionIngestDraft:
     first = _QUEST_START.sub("", block[0]).strip()
-    marks = _extract_marks(" ".join(block))
+    # The question's total marks live on the stem line ("Q1. ... (2分)");
+    # sub-part marks are already included in that total, so only parse the
+    # first line — do NOT sum across the whole block.
+    marks = _extract_marks(block[0])
     blocks: list[dict] = []
     current_para: list[str] = []
     current_sub: dict | None = None

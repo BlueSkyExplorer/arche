@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.services.question_ingest import ingest_question_text
+from app.services.question_ingest import _extract_marks, ingest_question_text
 
 MIXED = """1. Solve 2 + 2. (2 marks)
 
@@ -231,7 +231,7 @@ def test_ingests_table_row_with_marks_but_empty_answer() -> None:
 
     drafts = ingest_question_docx(buf.getvalue())
     assert len(drafts) == 1
-    assert drafts[0].marks == Decimal("1")
+    assert drafts[0].marks == Decimal("3")  # (1分) x3 → 1×3 = 3
     sub = drafts[0].content_json.content[0]
     assert sub.type == "subQuestion"
     assert len(sub.content) >= 1  # placeholder added; no empty-content crash
@@ -308,3 +308,61 @@ def test_ingests_table_answers_with_nested_subparts() -> None:
     q2_sub = q2.content_json.content[0]
     inner = [n.attrs.label for n in q2_sub.content if n.type == "subQuestion"]
     assert inner == ["(i)"]
+
+
+# --- Marks multiplier tests (TDD: RED first) ---
+
+
+class TestExtractMarksMultiplier:
+    """_extract_marks should multiply when xN/×N follows the mark token."""
+
+    def test_zh_fullwidth_with_x(self) -> None:
+        """（1分）x3 → 3"""
+        assert _extract_marks("（1分）x3") == Decimal("3")
+
+    def test_zh_fullwidth_with_times(self) -> None:
+        """（1分）×3 → 3"""
+        assert _extract_marks("（1分）×3") == Decimal("3")
+
+    def test_zh_halfwidth_with_x(self) -> None:
+        """(1分)\nx3 → 3"""
+        assert _extract_marks("(1分)\nx3") == Decimal("3")
+
+    def test_zh_halfwidth_with_times(self) -> None:
+        """(1分)×3 → 3"""
+        assert _extract_marks("(1分)×3") == Decimal("3")
+
+    def test_zh_multiplier_2(self) -> None:
+        """（2分）x2 → 4"""
+        assert _extract_marks("（2分）x2") == Decimal("4")
+
+    def test_zh_multiplier_times_5(self) -> None:
+        """（3分）×5 → 15"""
+        assert _extract_marks("（3分）×5") == Decimal("15")
+
+    def test_en_with_x(self) -> None:
+        """(1 mark)x3 → 3"""
+        assert _extract_marks("(1 mark)x3") == Decimal("3")
+
+    def test_en_with_times(self) -> None:
+        """(2 marks)×4 → 8"""
+        assert _extract_marks("(2 marks)×4") == Decimal("8")
+
+    def test_no_multiplier_still_works(self) -> None:
+        """（1分）without multiplier → 1"""
+        assert _extract_marks("（1分）") == Decimal("1")
+
+    def test_en_no_multiplier(self) -> None:
+        """(3 marks) without multiplier → 3"""
+        assert _extract_marks("(3 marks)") == Decimal("3")
+
+    def test_multiple_mark_tokens_with_multipliers(self) -> None:
+        """Two mark tokens with multipliers in one cell: (1分)x3 （2分）x2 → 3+4=7"""
+        assert _extract_marks("(1分)x3 （2分）x2") == Decimal("7")
+
+    def test_mixed_multiplier_and_plain(self) -> None:
+        """(1分)x3 （2分） → 3+2=5"""
+        assert _extract_marks("(1分)x3 （2分）") == Decimal("5")
+
+    def test_no_marks_at_all(self) -> None:
+        assert _extract_marks("no marks here") == Decimal("0")
