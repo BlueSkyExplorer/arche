@@ -5,6 +5,7 @@ import { Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api/client";
 import { importTemplate, templateDraftToForm, type TemplateImportResult } from "@/lib/api/templates";
+import { ingestQuestions, type QuestionIngestDraft } from "@/lib/api/questions";
 import type { TemplateFormValues } from "@/lib/validation/template";
 
 export function ImportWizard({
@@ -12,7 +13,11 @@ export function ImportWizard({
   onImported,
 }: {
   token: string;
-  onImported: (values: TemplateFormValues, draft: TemplateImportResult) => void;
+  onImported: (
+    values: TemplateFormValues,
+    draft: TemplateImportResult,
+    questions: QuestionIngestDraft[],
+  ) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -24,7 +29,14 @@ export function ImportWizard({
     setError(undefined);
     try {
       const draft = await importTemplate(token, file);
-      onImported(templateDraftToForm(draft), draft);
+      // Scan the same file for questions; a scan failure must not block the format import.
+      let questions: QuestionIngestDraft[] = [];
+      try {
+        questions = await ingestQuestions(token, { file });
+      } catch {
+        questions = [];
+      }
+      onImported(templateDraftToForm(draft), draft, questions);
     } catch (e) {
       setError(e instanceof ApiError ? e.body.detail : "Import failed / 匯入失敗");
     } finally {
