@@ -124,3 +124,51 @@ async def create_asset(
         raise
     db.refresh(asset)
     return asset
+
+
+_EXT_BY_MIME = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+
+
+def create_asset_from_bytes(
+    db: Session,
+    user: CurrentUser,
+    storage: StorageBackend,
+    kind: str,
+    data: bytes,
+    original_filename: str,
+) -> Asset:
+    if kind not in {"logo", "question_image"}:
+        raise HTTPException(422, "Invalid asset kind")
+    mime = sniff_mime(data)
+    if mime is None:
+        raise HTTPException(415, "Unsupported image")
+    width, height = image_dimensions(data, mime)
+    asset_id = uuid4()
+    key = f"{user.workspace_id}/{asset_id}{_EXT_BY_MIME[mime]}"
+    safe_name = re.sub(r"[^A-Za-z0-9._ -]", "_", original_filename)[:255] or "embedded"
+    storage.put(key, data)
+    asset = Asset(
+        id=asset_id,
+        workspace_id=user.workspace_id,
+        kind=kind,
+        storage_key=key,
+        original_filename=safe_name,
+        mime_type=mime,
+        size_bytes=len(data),
+        width=width,
+        height=height,
+    )
+    db.add(asset)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        storage.delete(key)
+        raise
+    db.refresh(asset)
+    return asset

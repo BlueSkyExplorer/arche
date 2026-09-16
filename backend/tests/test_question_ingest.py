@@ -402,3 +402,20 @@ def test_ingest_docx_falls_back_to_ai_when_no_rule_drafts(monkeypatch) -> None:
     assert len(drafts) == 1
     assert drafts[0].marks == Decimal("2")
     assert drafts[0].internal_title == "Q1."
+
+
+def test_attach_image_assets_places_node_in_subpart() -> None:
+    from uuid import uuid4
+
+    from app.services.question_ingest import attach_image_assets, ingest_question_text
+
+    drafts = ingest_question_text("Q1. 題。 （2分）\n\n(a) 花瓣細小 （1分）\n(b) 柱頭 （1分）")
+    aid = uuid4()
+    attachments = [{"draft_index": 0, "label": "(b)", "image": b"x"}]
+    attach_image_assets(drafts, attachments, [aid])
+    b = next(
+        n
+        for n in drafts[0].content_json.content
+        if n.type == "subQuestion" and n.attrs.label == "(b)"
+    )
+    assert any(n.type == "image" and n.attrs.asset_id == aid for n in b.content)

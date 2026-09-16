@@ -22,3 +22,24 @@ def test_magic_sniffing_and_png_dimensions() -> None:
     assert sniff_mime(png) == "image/png"
     assert image_dimensions(png, "image/png") == (2, 3)
     assert sniff_mime(b"<svg></svg>") is None
+
+
+@pytest.mark.db
+def test_create_asset_from_bytes_persists(api_client, db_session) -> None:
+    from uuid import uuid4
+
+    from app.core.auth import CurrentUser
+    from app.services.assets import create_asset_from_bytes
+
+    png = (Path(__file__).parent / "fixtures" / "tiny.png").read_bytes()
+    storage = LocalDirStorage(api_client.test_settings.storage_local_dir)
+    user = CurrentUser(user_id=uuid4(), workspace_id=api_client.workspace_id)
+    asset = create_asset_from_bytes(
+        db_session, user, storage, "question_image", png, "embedded.png"
+    )
+    assert asset.mime_type == "image/png"
+    assert asset.workspace_id == api_client.workspace_id
+    assert storage.get(asset.storage_key) == png
+    storage.delete(asset.storage_key)
+    db_session.delete(asset)
+    db_session.commit()

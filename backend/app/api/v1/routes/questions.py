@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import CurrentUser
 from app.core.config import Settings, get_settings
 from app.core.deps import get_current_user, get_db
+from app.core.storage import LocalDirStorage
 from app.schemas.question import (
     QuestionCreate,
     QuestionIngestDraft,
@@ -14,8 +15,13 @@ from app.schemas.question import (
     QuestionRead,
 )
 from app.services import questions
+from app.services.assets import create_asset_from_bytes
 from app.services.doc_convert import convert_doc_to_docx
-from app.services.question_ingest import ingest_question_docx, ingest_question_text
+from app.services.question_ingest import (
+    _ingest_with_images,
+    attach_image_assets,
+    ingest_question_text,
+)
 from app.services.uploads import validate_document_upload
 
 router = APIRouter(prefix="/questions", tags=["questions"])
@@ -44,7 +50,22 @@ async def question_ingest(
         if ext == ".doc":
             data = convert_doc_to_docx(data, settings)
         try:
-            return ingest_question_docx(data)
+            from io import BytesIO
+
+            from docx import Document
+
+            doc = Document(BytesIO(data))
+            drafts, attachments = _ingest_with_images(data, doc)
+            if attachments:
+                storage = LocalDirStorage(settings.storage_local_dir)
+                asset_ids = [
+                    create_asset_from_bytes(
+                        db, current_user, storage, "question_image", a["image"], "embedded"
+                    ).id
+                    for a in attachments
+                ]
+                attach_image_assets(drafts, attachments, asset_ids)
+            return drafts
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not text or not text.strip():

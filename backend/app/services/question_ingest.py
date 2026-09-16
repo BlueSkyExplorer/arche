@@ -10,6 +10,7 @@ import re
 from decimal import Decimal
 from io import BytesIO
 from typing import Any
+from uuid import UUID
 
 from docx import Document
 
@@ -17,6 +18,7 @@ from app.schemas.content import DocNode
 from app.schemas.question import QuestionIngestDraft
 from app.services.ai_client import AIClient, AIClientError
 from app.services.ai_schema import AIQuestion, ai_questions_to_drafts
+from app.services.docx_images import extract_cell_images
 
 _QUEST_START = re.compile(
     r"^\s*(?:Q(\d+)[.)]|第?\s*(\d+)\s*[題、.．)]|(\d+)[.)、．])\s"
@@ -106,12 +108,17 @@ def _classify_cells(cells: list[str], has_sub: bool = False) -> tuple[str, str, 
     return q, sub, subsub, " ".join(parts), marks
 
 
-def _table_to_drafts(tables: Any) -> list[QuestionIngestDraft]:
+def _table_to_drafts(
+    tables: Any, cell_images: dict[tuple[int, int, int], bytes] | None = None
+) -> tuple[list[QuestionIngestDraft], list[dict]]:
     """Parse the [Q, sub, sub-sub, answer, marks] table shape into drafts.
 
     Tables with no ``Q<num>.`` cell (e.g. the MC answer grid) are skipped.
+    Returns (drafts, image_attachments) where each attachment is
+    {"draft_index", "label" (sub-sub/sub label or None), "image" (bytes)}.
     """
     drafts: list[QuestionIngestDraft] = []
+    attachments: list[dict] = []
     current: dict | None = None
     current_index = 0
 
@@ -146,10 +153,10 @@ def _table_to_drafts(tables: Any) -> list[QuestionIngestDraft]:
             )
         )
 
-    for table in tables:
+    for table_index, table in enumerate(tables):
         if not any(_QUESTION_LABEL.match(c.text) for row in table.rows for c in row.cells):
             continue  # not the structured-question layout
-        for row in table.rows:
+        for row_index, row in enumerate(table.rows):
             q, sub, subsub, text, marks_cell = _classify_cells(
                 [c.text for c in row.cells],
                 has_sub=current is not None and current["sub"] is not None,
@@ -180,9 +187,21 @@ def _table_to_drafts(tables: Any) -> list[QuestionIngestDraft]:
                 add_text(text)
             if marks_cell:
                 current["total"] += _extract_marks(marks_cell)
+            if cell_images and current is not None:
+                for ci in range(len(row.cells)):
+                    img = cell_images.get((table_index, row_index, ci))
+                    if img is not None:
+                        target = current.get("subsub") or current.get("sub")
+                        attachments.append(
+                            {
+                                "draft_index": current_index,
+                                "label": target["attrs"]["label"] if target else None,
+                                "image": img,
+                            }
+                        )
     if current is not None:
         finish()
-    return drafts
+    return drafts, attachments
 
 
 def _normalize_label(raw: str) -> str:
@@ -318,17 +337,42 @@ def ingest_question_text(text: str) -> list[QuestionIngestDraft]:
     return [_draft_from_block(block, i + 1) for i, block in enumerate(questions)]
 
 
-def ingest_question_docx(data: bytes) -> list[QuestionIngestDraft]:
-    """Split paragraphs AND tables from an uploaded .docx into reviewable drafts."""
-    if not data or not data[:4] == b"PK\x03\x04":
-        raise ValueError("not a valid DOCX file")
-    doc = Document(BytesIO(data))
+def _insert_image_into(blocks: list, label: str | None, asset_id: UUID) -> None:
+    from app.schemas.content import ImageAttrs, ImageNode
+
+    node = ImageNode(type="image", attrs=ImageAttrs(asset_id=asset_id))
+    if label is None:
+        blocks.insert(0, node)
+        return
+    for b in blocks:
+        if getattr(b, "type", None) == "subQuestion":
+            if getattr(b.attrs, "label", None) == label:
+                b.content.append(node)
+                return
+            _insert_image_into(b.content, label, asset_id)
+
+
+def attach_image_assets(
+    drafts: list[QuestionIngestDraft],
+    attachments: list[dict],
+    asset_ids: list[UUID],
+) -> None:
+    """Mutate drafts in place: insert an ImageNode(asset_id) at each attachment."""
+    for att, asset_id in zip(attachments, asset_ids, strict=True):
+        draft = drafts[att["draft_index"]]
+        _insert_image_into(draft.content_json.content, att["label"], asset_id)
+
+
+def _ingest_with_images(
+    data: bytes, doc: Any
+) -> tuple[list[QuestionIngestDraft], list[dict]]:
+    """Parse paragraphs + tables, returning (drafts, image_attachments)."""
     paragraphs = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
     paragraph_drafts = [
         _draft_from_block(block, i + 1)
         for i, block in enumerate(_split_questions(paragraphs))
     ]
-    table_drafts = _table_to_drafts(doc.tables)
+    table_drafts, attachments = _table_to_drafts(doc.tables, extract_cell_images(doc))
     drafts = paragraph_drafts + table_drafts
     if not drafts:
         from app.core.config import get_settings
@@ -341,4 +385,11 @@ def ingest_question_docx(data: bytes) -> list[QuestionIngestDraft]:
                 )
             except AIClientError:
                 drafts = []
-    return drafts
+    return drafts, attachments
+
+
+def ingest_question_docx(data: bytes) -> list[QuestionIngestDraft]:
+    """Split paragraphs AND tables from an uploaded .docx into reviewable drafts."""
+    if not data or not data[:4] == b"PK\x03\x04":
+        raise ValueError("not a valid DOCX file")
+    return _ingest_with_images(data, Document(BytesIO(data)))[0]
