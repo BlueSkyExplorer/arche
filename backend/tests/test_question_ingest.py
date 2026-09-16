@@ -419,3 +419,38 @@ def test_attach_image_assets_places_node_in_subpart() -> None:
         if n.type == "subQuestion" and n.attrs.label == "(b)"
     )
     assert any(n.type == "image" and n.attrs.asset_id == aid for n in b.content)
+
+
+@pytest.mark.db
+def test_ingest_endpoint_embeds_cell_image(api_client) -> None:
+    from io import BytesIO
+    from pathlib import Path
+
+    from docx import Document as DocxDocument
+
+    png = (Path(__file__).parent / "fixtures" / "tiny.png").read_bytes()
+    doc = DocxDocument()
+    t = doc.add_table(rows=2, cols=5)
+    t.cell(0, 0).text = "Q1."
+    t.cell(0, 1).text = "(a)"
+    t.cell(0, 3).text = "風媒花花瓣細小"
+    t.cell(0, 4).text = "(1分)"
+    t.cell(1, 1).text = "(b)"
+    t.cell(1, 3).add_paragraph().add_run().add_picture(BytesIO(png))
+    t.cell(1, 4).text = "(1分)"
+    buf = BytesIO()
+    doc.save(buf)
+
+    mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    resp = api_client.post(
+        "/api/v1/questions/ingest", files={"file": ("q.docx", buf.getvalue(), mime)}
+    )
+    assert resp.status_code == 200, resp.text
+    drafts = resp.json()
+    assert len(drafts) == 1
+    b = next(
+        n
+        for n in drafts[0]["content_json"]["content"]
+        if n["type"] == "subQuestion" and n["attrs"]["label"] == "(b)"
+    )
+    assert any(n["type"] == "image" for n in b["content"])
