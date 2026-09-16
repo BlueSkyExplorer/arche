@@ -454,3 +454,52 @@ def test_ingest_endpoint_embeds_cell_image(api_client) -> None:
         if n["type"] == "subQuestion" and n["attrs"]["label"] == "(b)"
     )
     assert any(n["type"] == "image" for n in b["content"])
+
+
+def test_table_ingest_recognizes_numeric_and_cjk_question_labels() -> None:
+    from io import BytesIO
+
+    from docx import Document as DocxDocument
+
+    from app.services.question_ingest import ingest_question_docx
+
+    doc = DocxDocument()
+    t = doc.add_table(rows=2, cols=3)  # [題號, 題目, 分數] layout — NOT [Q, sub, ...]
+    t.cell(0, 0).text = "1."
+    t.cell(0, 1).text = "風媒花與蟲媒花的差異"
+    t.cell(0, 2).text = "(6分)"
+    t.cell(1, 0).text = "第2題"
+    t.cell(1, 1).text = "計算 12 × 4"
+    t.cell(1, 2).text = "（2分）"
+    buf = BytesIO()
+    doc.save(buf)
+
+    drafts = ingest_question_docx(buf.getvalue())
+    assert len(drafts) == 2, drafts
+    titles = [d.internal_title for d in drafts]
+    assert "1." in titles
+    assert "第2題" in titles
+
+
+def test_mc_answer_grid_with_bare_numbers_still_skipped() -> None:
+    from io import BytesIO
+
+    from docx import Document as DocxDocument
+
+    from app.services.question_ingest import ingest_question_docx
+
+    doc = DocxDocument()
+    t = doc.add_table(rows=2, cols=4)  # [題號|答案|題號|答案]
+    t.cell(0, 0).text = "1"
+    t.cell(0, 1).text = "C"
+    t.cell(0, 2).text = "16"
+    t.cell(0, 3).text = "B"
+    t.cell(1, 0).text = "2"
+    t.cell(1, 1).text = "D"
+    t.cell(1, 2).text = "17"
+    t.cell(1, 3).text = "B"
+    buf = BytesIO()
+    doc.save(buf)
+
+    # bare numbers must not be treated as question numbers
+    assert ingest_question_docx(buf.getvalue()) == []

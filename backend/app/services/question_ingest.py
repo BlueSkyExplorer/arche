@@ -76,7 +76,10 @@ def _extract_marks(text: str) -> Decimal:
     return total
 
 
-_QUESTION_LABEL = re.compile(r"^\s*Q\s*(\d+)\s*[.)]?\s*$", re.IGNORECASE)
+_QUESTION_LABEL = re.compile(
+    r"^\s*(?:Q\s*\d+\s*[.)]?|第?\s*\d+\s*題|\d+\s*[.)、．])\s*$",
+    re.IGNORECASE,
+)
 _SUB_LABEL_ONLY = re.compile(r"^\s*\(?([a-zA-Z])\)?\s*$")
 _SUBSUB_LABEL_ONLY = re.compile(
     r"^\s*\(?\s*(i{1,3}|iv|v|vi{0,3}|ix|x|I{1,3}|IV|V|VI{0,3}|IX|X)\s*\)?\s*$"
