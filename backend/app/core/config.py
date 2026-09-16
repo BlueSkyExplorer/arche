@@ -28,6 +28,13 @@ class Settings(BaseSettings):
         default=["http://localhost:3000"],
         validation_alias="CORS_ALLOW_ORIGINS",
     )
+    ai_enabled: bool = Field(default=False, validation_alias="AI_ENABLED")
+    ai_base_url: str = Field(
+        default="https://api.openai.com/v1", validation_alias="AI_BASE_URL"
+    )
+    ai_api_key: str = Field(default="", validation_alias="AI_API_KEY")
+    ai_model: str = Field(default="gpt-4o-mini", validation_alias="AI_MODEL")
+    ai_timeout_s: int = Field(default=60, ge=1, validation_alias="AI_TIMEOUT_S")
 
 
 @lru_cache
