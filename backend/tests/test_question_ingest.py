@@ -366,3 +366,39 @@ class TestExtractMarksMultiplier:
 
     def test_no_marks_at_all(self) -> None:
         assert _extract_marks("no marks here") == Decimal("0")
+
+
+def test_ingest_docx_falls_back_to_ai_when_no_rule_drafts(monkeypatch) -> None:
+    from decimal import Decimal
+    from io import BytesIO
+
+    from docx import Document as DocxDocument
+
+    from app.services import question_ingest
+    from app.services.ai_schema import AIQuestion, AISubPart
+
+    doc = DocxDocument()
+    t = doc.add_table(rows=1, cols=2)  # rule parser won't recognize this layout
+    t.cell(0, 0).text = "第一題"
+    t.cell(0, 1).text = "答案是這樣 (2分)"
+    buf = BytesIO()
+    doc.save(buf)
+
+    fake = [
+        AIQuestion(
+            label="Q1.",
+            marks=Decimal("2"),
+            subparts=[AISubPart(label="(a)", text="答案是這樣", marks=Decimal("2"))],
+        )
+    ]
+
+    class FakeClient:
+        enabled = True
+
+    monkeypatch.setattr(question_ingest, "_suggest_questions_ai", lambda s, c: fake)
+    monkeypatch.setattr(question_ingest, "AIClient", lambda settings: FakeClient())
+
+    drafts = question_ingest.ingest_question_docx(buf.getvalue())
+    assert len(drafts) == 1
+    assert drafts[0].marks == Decimal("2")
+    assert drafts[0].internal_title == "Q1."

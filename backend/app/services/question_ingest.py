@@ -15,6 +15,8 @@ from docx import Document
 
 from app.schemas.content import DocNode
 from app.schemas.question import QuestionIngestDraft
+from app.services.ai_client import AIClient, AIClientError
+from app.services.ai_schema import AIQuestion, ai_questions_to_drafts
 
 _QUEST_START = re.compile(
     r"^\s*(?:Q(\d+)[.)]|第?\s*(\d+)\s*[題、.．)]|(\d+)[.)、．])\s"
@@ -29,6 +31,27 @@ _MARKS_EN = re.compile(r"\((\d+(?:\.\d+)?)\s*marks?\)", re.IGNORECASE)
 _MARKS_ZH = re.compile(r"[（(](\d+(?:\.\d+)?)\s*分[）)]")
 _MULTIPLIER = re.compile(r"\s*[x×]\s*(\d+(?:\.\d+)?)")
 _WHITESPACE = re.compile(r"\s+")
+
+
+def _document_skeleton(doc: Any) -> str:
+    lines = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    for ti, table in enumerate(doc.tables):
+        lines.append(f"--- table {ti} ({len(table.columns)} cols) ---")
+        for row in table.rows:
+            lines.append(" | ".join(c.text.strip() for c in row.cells))
+    return "\n".join(lines)
+
+
+def _suggest_questions_ai(skeleton: str, client: AIClient) -> list[AIQuestion]:
+    system = (
+        "你是香港試卷結構辨識器。把文字與表格切分成題目與子題，標出分數(marks)與"
+        "子題label(如 (a)/(i))。只輸出JSON:{questions:[{label,marks,stem,subparts:"
+        "[{label,text,marks,children:[...]}]}]}。不得改寫任何答案文字。"
+    )
+    obj = client.complete_json(
+        [{"role": "system", "content": system}, {"role": "user", "content": skeleton}]
+    )
+    return [AIQuestion.model_validate(q) for q in obj.get("questions", [])]
 
 
 def _extract_marks(text: str) -> Decimal:
@@ -306,4 +329,16 @@ def ingest_question_docx(data: bytes) -> list[QuestionIngestDraft]:
         for i, block in enumerate(_split_questions(paragraphs))
     ]
     table_drafts = _table_to_drafts(doc.tables)
-    return paragraph_drafts + table_drafts
+    drafts = paragraph_drafts + table_drafts
+    if not drafts:
+        from app.core.config import get_settings
+
+        client = AIClient(get_settings())
+        if client.enabled:
+            try:
+                drafts = ai_questions_to_drafts(
+                    _suggest_questions_ai(_document_skeleton(doc), client)
+                )
+            except AIClientError:
+                drafts = []
+    return drafts

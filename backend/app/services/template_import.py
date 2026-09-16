@@ -16,6 +16,7 @@ from docx.oxml.ns import qn
 from docx.shared import Length
 
 from app.schemas.template_profile import TemplateProfileCreate
+from app.services.ai_client import AIClient, AIClientError
 
 A4_WIDTH_MM = 210.0
 A4_HEIGHT_MM = 297.0
@@ -26,6 +27,26 @@ _TOP_LEVEL_NUMBER = re.compile(r"^\s*\d+[.)、．]\s")
 _SUB_LEVEL_NUMBER = re.compile(r"^\s*\(?[a-zＡ-Ｚ一二三四五六]\)?[.)、．]?\s", re.IGNORECASE)
 _ANSWER_LINE = re.compile(r"_{3,}|…{3,}|答.?[：:]\s*$")
 _MARKS_ZH = re.compile(r"[（(]\s*(\d+(?:\.\d+)?)\s*分\s*[）)]")
+
+
+def _document_skeleton(doc: Any) -> str:
+    parts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    for ti, table in enumerate(doc.tables):
+        parts.append(f"--- table {ti} ---")
+        for row in table.rows:
+            parts.append(" | ".join(c.text.strip() for c in row.cells))
+    return "\n".join(parts)
+
+
+def _suggest_template_ai(skeleton: str, client: AIClient) -> dict:
+    system = (
+        "你是香港試卷格式辨識器。推斷 school_name、question_style(如 Q1./1./(1))、"
+        "marks_format(如 （{marks}分） / ({marks} marks))。只輸出JSON:"
+        "{school_name,question_style,marks_format}。"
+    )
+    return client.complete_json(
+        [{"role": "system", "content": system}, {"role": "user", "content": skeleton}]
+    )
 
 
 def _emus_to_mm(value: Length | None, default: float) -> float:
@@ -171,6 +192,21 @@ def import_template_docx(data: bytes) -> TemplateImportDraft:
         unmapped.append("fonts")
     if answer_lines == 0:
         unmapped.append("answer_lines")
+
+    if not school_name or question_style == "1." or not chinese_marks:
+        from app.core.config import get_settings
+
+        client = AIClient(get_settings())
+        if client.enabled:
+            try:
+                hint = _suggest_template_ai(_document_skeleton(doc), client)
+            except AIClientError:
+                hint = {}
+            school_name = hint.get("school_name") or school_name
+            question_style = hint.get("question_style") or question_style
+            if hint.get("marks_format"):
+                marks_format = hint["marks_format"]
+                chinese_marks = True
 
     profile = TemplateProfileCreate.model_validate(
         {

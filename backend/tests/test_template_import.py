@@ -125,3 +125,37 @@ def test_import_endpoint_accepts_doc(api_client) -> None:
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["profile"]["page_config_json"]["size"] == "A4"
+
+
+def test_template_import_falls_back_to_ai_on_low_confidence(monkeypatch) -> None:
+    from io import BytesIO
+
+    from docx import Document as DocxDocument
+
+    from app.services import template_import
+
+    doc = DocxDocument()
+    # long paragraph (>40 chars) so school_name body fallback skips it;
+    # no Q label and no chinese marks so question_style/marks_format stay default
+    doc.add_paragraph("這是一段很長的文字用來確保無法自動偵測到學校名稱因為超過四十個字元")
+    table = doc.add_table(rows=1, cols=1)
+    table.cell(0, 0).text = "some plain answer text"
+    buf = BytesIO()
+    doc.save(buf)
+
+    fake = {
+        "school_name": "武學路中學",
+        "question_style": "Q1.",
+        "marks_format": "（{marks}分）",
+    }
+
+    class FakeClient:
+        enabled = True
+
+    monkeypatch.setattr(template_import, "_suggest_template_ai", lambda s, c: fake)
+    monkeypatch.setattr(template_import, "AIClient", lambda settings: FakeClient())
+
+    draft = template_import.import_template_docx(buf.getvalue())
+    assert draft.profile.school_name == "武學路中學"
+    assert draft.profile.numbering_config_json.question_style == "Q1."
+    assert draft.profile.question_style_config_json.marks_format == "（{marks}分）"
