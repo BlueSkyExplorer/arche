@@ -253,8 +253,8 @@ export function IngestPanel({
           <input
             ref={fileRef}
             type="file"
-            accept=".docx"
-            aria-label="Import questions DOCX"
+            accept=".doc,.docx"
+            aria-label="Import questions document"
             className="hidden"
             onChange={(e) => void parse(e.target.files?.[0])}
           />
@@ -265,7 +265,7 @@ export function IngestPanel({
             onClick={() => fileRef.current?.click()}
           >
             <Upload className="size-4" />
-            Upload DOCX / 上傳
+            Upload Word / 上傳
           </Button>
           <Button
             type="button"

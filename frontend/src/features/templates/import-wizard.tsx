@@ -38,14 +38,14 @@ export function ImportWizard({
       <input
         ref={inputRef}
         type="file"
-        accept=".docx"
-        aria-label="Import DOCX file"
+        accept=".doc,.docx"
+        aria-label="Import document"
         className="hidden"
         onChange={(e) => void pick(e.target.files?.[0])}
       />
       <Button type="button" variant="outline" disabled={busy} onClick={() => inputRef.current?.click()}>
         <Upload className="size-4" />
-        {busy ? "Importing… / 匯入中…" : "Import DOCX / 匯入格式"}
+        {busy ? "Importing… / 匯入中…" : "Import Word / 匯入格式"}
       </Button>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     </>
