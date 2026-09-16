@@ -78,3 +78,14 @@ Both importers now read **table cell content** in addition to plain paragraphs (
 **Rules-first AI fallback.** Both importers now have an optional AI structure-recognition fallback, gated by `AI_ENABLED` + `AI_API_KEY` (both default off). When the deterministic parse yields nothing (`questions/ingest` → 0 drafts) or is low-confidence (`templates/import` → default `school_name`/`question_style`/`marks_format`), a pluggable `AIClient` (`app/services/ai_client.py`) sends a plain-text document skeleton (paragraphs + table row×cell matrix — never the raw DOCX) to any OpenAI-compatible `/chat/completions` endpoint, and the returned intermediate representation (`app/services/ai_schema.py`) is mapped onto the canonical `DocNode`/`QuestionIngestDraft`/`TemplateImportDraft` shapes. Rendering is never touched; teacher review is unchanged.
 
 **Image preservation.** Cell images (e.g. a biology diagram inside an answer cell) are no longer dropped: `extract_cell_images` (`app/services/docx_images.py`) locates each embedded image by `(table,row,col)`, the ingest endpoint uploads it as a workspace-scoped `Asset` (`create_asset_from_bytes`), and `attach_image_assets` inserts an `ImageNode` at the matching sub-part (deepest `sub-sub`/`sub` of that row; a bare Q-row image goes to the question stem). No OCR/vision — images are stored byte-for-byte and simply appear at the right place in the paper.
+
+**Question-paper numbering (2026-09-16).** The table parser's question-label recognizer (`_QUESTION_LABEL`) now accepts numeric/CJK numbering (`1.` / `1)` / `1、` / `第1題` / `1題`) in addition to `Q1.`, so a real **question paper** laid out in a table parses instead of returning 0 drafts — while a bare number (`1`/`16`) still does NOT match, so the 甲部 multiple-choice answer grid keeps skipping. The deterministic parser remains tuned to the answer key's 5-column shape (see above); for 試卷 layouts it cannot parse (2-column, floating text boxes, images-only), the **AI fallback** is the safety net — enable it in `backend/.env`:
+
+```bash
+AI_ENABLED=true
+AI_API_KEY=<any OpenAI-compatible key>
+AI_BASE_URL=https://api.openai.com/v1
+AI_MODEL=gpt-4o-mini
+```
+
+It stays off by default; when on, `_ingest_with_images` calls `_suggest_questions_ai` only when the rule parse yields 0 drafts.
