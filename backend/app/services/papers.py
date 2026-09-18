@@ -1,3 +1,4 @@
+import copy
 from decimal import Decimal
 from uuid import UUID
 
@@ -137,6 +138,7 @@ def replace_questions(
         raise HTTPException(404, "Question not found")
     db.execute(delete(PaperQuestion).where(PaperQuestion.paper_section_id == section.id))
     db.flush()
+    by_id = {question.id: question for question in questions}
     rows = [
         PaperQuestion(
             workspace_id=user.workspace_id,
@@ -145,6 +147,7 @@ def replace_questions(
             position=index,
             marks_override=item.marks_override,
             settings_json={},
+            content_snapshot_json=copy.deepcopy(by_id[item.question_id].content_json),
         )
         for index, item in enumerate(items)
     ]

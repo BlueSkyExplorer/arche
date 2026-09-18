@@ -168,3 +168,46 @@ def test_cross_workspace_paper_section_and_export_are_404(
         == 404
     )
     assert api_client.get(f"/api/v1/exports/{export['id']}/download").status_code == 404
+
+
+def _snapshot_text(snapshot: dict[str, Any]) -> str:
+    return snapshot["content"][0]["content"][0]["text"]
+
+
+@pytest.mark.db
+def test_paper_snapshots_question_content_on_add(
+    api_client: TestClient, db_session: Session, template_payload: dict[str, Any]
+) -> None:
+    paper, sections, questions = create_paper_tree(api_client, template_payload)
+    section_id = sections[0]["id"]
+    assert (
+        api_client.put(
+            f"/api/v1/papers/{paper['id']}/sections/{section_id}/questions",
+            json=[{"question_id": questions[0]["id"]}],
+        ).status_code
+        == 200
+    )
+
+    row = db_session.scalars(
+        select(PaperQuestion).where(PaperQuestion.paper_section_id == section_id)
+    ).one()
+    # The snapshot is a frozen copy of the source content, with provenance.
+    assert _snapshot_text(row.content_snapshot_json) == "First wording"
+    assert str(row.question_id) == questions[0]["id"]
+
+    # Editing the source question afterwards leaves the snapshot untouched.
+    api_client.patch(
+        f"/api/v1/questions/{questions[0]['id']}",
+        json={
+            "content_json": {
+                "type": "doc",
+                "content": [
+                    {"type": "paragraph", "content": [{"type": "text", "text": "Changed wording"}]}
+                ],
+            }
+        },
+    )
+    db_session.expire_all()
+    reloaded = db_session.get(PaperQuestion, row.id)
+    assert reloaded is not None
+    assert _snapshot_text(reloaded.content_snapshot_json) == "First wording"

@@ -26,3 +26,4 @@ class PaperQuestion(Base):
     position: Mapped[int] = mapped_column(Integer)
     marks_override: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
     settings_json: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    content_snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSONB)
