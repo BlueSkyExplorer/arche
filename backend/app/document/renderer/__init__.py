@@ -352,6 +352,17 @@ def _render_block(
                     sub_sub_question_index,
                     sub_sub_question_style,
                 )
+        if node.attrs.marks is not None:
+            marks_text = _format_marks(
+                node.attrs.marks, config.question_style_config_json.marks_format
+            )
+            if config.question_style_config_json.marks_display == "inline":
+                paragraph.add_run(f" {marks_text}")
+            else:
+                marks_paragraph = _new_paragraph(container, "QuestionMarks")
+                marks_paragraph.add_run(marks_text)
+                if config.question_style_config_json.marks_display == "below":
+                    marks_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
     elif isinstance(node, AnswerSpaceNode):
         heights = (
             [7.0] * node.attrs.lines

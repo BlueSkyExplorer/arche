@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentUser
 from app.core.deps import get_current_user, get_db
+from app.schemas.content import DocNode
 from app.schemas.domain import (
     PaperCreate,
     PaperDetail,
@@ -20,6 +21,7 @@ from app.schemas.domain import (
 )
 from app.schemas.question import QuestionRead
 from app.services import papers
+from app.services.marks import computed_marks
 from app.services.numbering import (
     NumberingConfig,
     QuestionForNumbering,
@@ -45,7 +47,7 @@ def detail(db: Session, paper: object) -> PaperDetail:
                     QuestionForNumbering(
                         question_id=pq.id,
                         position=pq.position,
-                        marks=question.marks,
+                        marks=computed_marks(DocNode.model_validate(pq.content_snapshot_json)),
                         marks_override=pq.marks_override,
                     )
                     for pq, question in pairs
@@ -63,7 +65,14 @@ def detail(db: Session, paper: object) -> PaperDetail:
                 PaperQuestionRead.model_validate(pq).model_copy(
                     update={
                         "label": labels[pq.id],
-                        "question": QuestionRead.model_validate(question),
+                        "question": QuestionRead.model_validate(question).model_copy(
+                            update={
+                                "content_json": DocNode.model_validate(pq.content_snapshot_json),
+                                "marks": computed_marks(
+                                    DocNode.model_validate(pq.content_snapshot_json)
+                                ),
+                            }
+                        ),
                     }
                 )
                 for pq, question in pairs

@@ -528,3 +528,24 @@ def test_sub_question_can_start_with_list_or_table(first_child: object) -> None:
         paragraph.text for paragraph in Document(BytesIO(_render_content(content))).paragraphs
     )
     assert "(a)" in extracted
+
+
+def test_subquestion_leaf_marks_render() -> None:
+    content = DocNode.model_validate(
+        {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "subQuestion",
+                    "attrs": {"label": "(a)", "marks": "2"},
+                    "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "part a"}]}
+                    ],
+                }
+            ],
+        }
+    )
+    extracted = "\n".join(
+        paragraph.text for paragraph in Document(BytesIO(_render_content(content))).paragraphs
+    )
+    assert "(2 marks)" in extracted

@@ -1,5 +1,6 @@
 import copy
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentUser
 from app.models import Paper, PaperQuestion, PaperSection, Question, TemplateProfile
+from app.schemas.content import DocNode, SubQuestionNode
 from app.schemas.domain import (
     PaperCreate,
     PaperPatch,
@@ -17,6 +19,7 @@ from app.schemas.domain import (
     SectionPatch,
 )
 from app.services.authorization import assert_workspace_access
+from app.services.marks import computed_marks
 
 
 def get_paper(db: Session, paper_id: UUID, user: CurrentUser) -> Paper:
@@ -116,6 +119,17 @@ def delete_section(db: Session, paper_id: UUID, section_id: UUID, user: CurrentU
     db.commit()
 
 
+def _snapshot_content(question: Question) -> dict[str, Any]:
+    """Freeze a question's content, lifting a legacy question-level mark into the
+    root leaf position so the snapshot is mark-complete for leaf aggregation."""
+    snapshot = copy.deepcopy(question.content_json)
+    doc = DocNode.model_validate(snapshot)
+    has_sub = any(isinstance(block, SubQuestionNode) for block in doc.content)
+    if not has_sub and doc.marks is None and question.marks > 0:
+        snapshot["marks"] = str(question.marks)
+    return snapshot
+
+
 def replace_questions(
     db: Session, paper_id: UUID, section_id: UUID, user: CurrentUser, items: list[PaperQuestionPut]
 ) -> list[PaperQuestion]:
@@ -147,7 +161,7 @@ def replace_questions(
             position=index,
             marks_override=item.marks_override,
             settings_json={},
-            content_snapshot_json=copy.deepcopy(by_id[item.question_id].content_json),
+            content_snapshot_json=_snapshot_content(by_id[item.question_id]),
         )
         for index, item in enumerate(items)
     ]
@@ -179,7 +193,11 @@ def paper_tree(
                 .order_by(PaperQuestion.position)
             ).tuples()
         )
-        for pq, question in pairs:
-            total += pq.marks_override if pq.marks_override is not None else question.marks
+        for pq, _question in pairs:
+            snapshot = DocNode.model_validate(pq.content_snapshot_json)
+            effective = (
+                pq.marks_override if pq.marks_override is not None else computed_marks(snapshot)
+            )
+            total += effective
         tree.append((section, pairs))
     return tree, total

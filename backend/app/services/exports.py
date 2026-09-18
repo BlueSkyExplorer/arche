@@ -24,6 +24,7 @@ from app.models import Asset, Export, TemplateProfile
 from app.schemas.content import DocNode
 from app.schemas.template_profile import TemplateProfileConfig
 from app.services.authorization import assert_workspace_access
+from app.services.marks import computed_marks
 from app.services.papers import get_paper, paper_tree
 
 logger = logging.getLogger(__name__)
@@ -58,8 +59,8 @@ def _render(
                 RenderQuestion(
                     id=question.id,
                     position=pq.position,
-                    content=DocNode.model_validate(question.content_json),
-                    marks=question.marks,
+                    content=(snapshot := DocNode.model_validate(pq.content_snapshot_json)),
+                    marks=computed_marks(snapshot),
                     marks_override=pq.marks_override,
                 )
                 for pq, question in pairs

@@ -211,3 +211,46 @@ def test_paper_snapshots_question_content_on_add(
     reloaded = db_session.get(PaperQuestion, row.id)
     assert reloaded is not None
     assert _snapshot_text(reloaded.content_snapshot_json) == "First wording"
+
+
+@pytest.mark.db
+def test_paper_total_is_sum_of_leaf_marks(
+    api_client: TestClient, template_payload: dict[str, Any]
+) -> None:
+    content = {
+        "type": "doc",
+        "content": [
+            {
+                "type": "subQuestion",
+                "attrs": {"label": "(a)", "marks": "2"},
+                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "a"}]}],
+            },
+            {
+                "type": "subQuestion",
+                "attrs": {"label": "(b)", "marks": "3"},
+                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "b"}]}],
+            },
+        ],
+    }
+    question = api_client.post(
+        "/api/v1/questions",
+        json={
+            "internal_title": "Multi-part",
+            "subject": "Math",
+            "level": "S1",
+            "marks": "99",  # legacy field; leaf marks must win
+            "status": "ready",
+            "content_json": content,
+        },
+    ).json()
+    paper, sections, _ = create_paper_tree(api_client, template_payload)
+    section_id = sections[0]["id"]
+    assert (
+        api_client.put(
+            f"/api/v1/papers/{paper['id']}/sections/{section_id}/questions",
+            json=[{"question_id": question["id"]}],
+        ).status_code
+        == 200
+    )
+    detail = api_client.get(f"/api/v1/papers/{paper['id']}").json()
+    assert Decimal(detail["total_marks"]) == Decimal("5")
