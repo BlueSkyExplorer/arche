@@ -6,6 +6,7 @@ Run ``python -m app.schemas.content`` to print the matching JSON Schema.
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -191,12 +192,23 @@ class SubQuestionAttrs(StrictModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True, alias_generator=to_camel)
 
     label: str | None = Field(default=None, min_length=1)
+    marks: Decimal | None = Field(default=None, ge=0)
 
 
 class SubQuestionNode(StrictModel):
     type: Literal["subQuestion"]
     attrs: SubQuestionAttrs = Field(default_factory=SubQuestionAttrs)
     content: list[BlockNode] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def leaf_or_parent(self) -> SubQuestionNode:
+        if self.attrs.marks is not None and any(
+            isinstance(block, SubQuestionNode) for block in self.content
+        ):
+            raise ValueError(
+                "a sub-question with nested sub-questions cannot carry an authoritative mark"
+            )
+        return self
 
 
 BlockNode = Annotated[
@@ -214,7 +226,18 @@ BlockNode = Annotated[
 
 class DocNode(StrictModel):
     type: Literal["doc"] = "doc"
+    marks: Decimal | None = Field(default=None, ge=0)
     content: list[BlockNode] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def leaf_or_parent(self) -> DocNode:
+        if self.marks is not None and any(
+            isinstance(block, SubQuestionNode) for block in self.content
+        ):
+            raise ValueError(
+                "a doc with sub-questions cannot carry an authoritative mark"
+            )
+        return self
 
 
 DocNode.model_rebuild()

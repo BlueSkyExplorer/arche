@@ -163,3 +163,57 @@ def test_nested_table_in_table_cell_is_rejected() -> None:
 def test_invalid_content_is_a_controlled_validation_error(payload: object) -> None:
     with pytest.raises(ValidationError):
         parse_content(payload)
+
+
+def test_doc_with_subquestions_cannot_carry_a_mark() -> None:
+    payload = {
+        "type": "doc",
+        "marks": 4,
+        "content": [
+            {"type": "subQuestion", "attrs": {"label": "(a)"}, "content": [{"type": "paragraph"}]},
+            {
+                "type": "subQuestion",
+                "attrs": {"label": "(b)", "marks": 2},
+                "content": [{"type": "paragraph"}],
+            },
+        ],
+    }
+    with pytest.raises(ValidationError, match="cannot carry"):
+        parse_content(payload)
+
+
+def test_subquestion_with_nested_subquestions_cannot_carry_a_mark() -> None:
+    payload = {
+        "type": "doc",
+        "content": [
+            {
+                "type": "subQuestion",
+                "attrs": {"label": "(a)", "marks": 5},
+                "content": [
+                    {
+                        "type": "subQuestion",
+                        "attrs": {"label": "(i)"},
+                        "content": [{"type": "paragraph"}],
+                    }
+                ],
+            }
+        ],
+    }
+    with pytest.raises(ValidationError, match="cannot carry"):
+        parse_content(payload)
+
+
+def test_standalone_and_leaf_marks_are_accepted() -> None:
+    parse_content({"type": "doc", "marks": 4, "content": [{"type": "paragraph"}]})
+    parse_content(
+        {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "subQuestion",
+                    "attrs": {"label": "(a)", "marks": 2},
+                    "content": [{"type": "paragraph"}],
+                }
+            ],
+        }
+    )
