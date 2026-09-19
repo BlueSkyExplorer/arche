@@ -46,6 +46,11 @@ def ai_questions_to_drafts(questions: list[AIQuestion]) -> list[QuestionIngestDr
             blocks = [_para("")]
         content = DocNode.model_validate({"type": "doc", "content": blocks})
         drafts.append(
-            QuestionIngestDraft(internal_title=q.label, marks=q.marks, content_json=content)
+            QuestionIngestDraft(
+                internal_title=q.label,
+                marks=q.marks if q.marks > 0 else None,
+                needs_review=True,  # AI suggestions are evidence, never trusted truth
+                content_json=content,
+            )
         )
     return drafts

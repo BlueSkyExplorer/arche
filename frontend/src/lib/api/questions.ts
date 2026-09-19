@@ -39,6 +39,12 @@ export async function listQuestions(token: string): Promise<Question[]> {
 export function createQuestion(token: string, input: QuestionInput) { return apiFetch<Question>("/api/v1/questions", token, { method: "POST", body: JSON.stringify(toPayload(input)) }); }
 export function updateQuestion(token: string, id: string, input: QuestionInput) { return apiFetch<Question>(`/api/v1/questions/${encodeURIComponent(id)}`, token, { method: "PATCH", body: JSON.stringify(toPayload(input)) }); }
 
+export type DeclaredMark = {
+  value: string | number;
+  raw_text: string;
+  location: string;
+};
+
 export type QuestionIngestDraft = {
   internal_title: string;
   subject: string;
@@ -46,7 +52,9 @@ export type QuestionIngestDraft = {
   tags_json: string[];
   source_note: string | null;
   content_json: QuestionContent;
-  marks: string | number;
+  marks: string | number | null;
+  declared_marks: DeclaredMark[];
+  needs_review: boolean;
   status: QuestionStatus;
 };
 

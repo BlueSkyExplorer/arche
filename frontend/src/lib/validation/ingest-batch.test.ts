@@ -22,6 +22,8 @@ const stubDraft: QuestionIngestDraft = {
   source_note: null,
   content_json: stubContent,
   marks: 2,
+  declared_marks: [],
+  needs_review: false,
   status: "draft",
 };
 
@@ -121,10 +123,11 @@ describe("draftOverrideSchema", () => {
 
 describe("buildDraftPayload", () => {
   it("maps draft fields to camelCase QuestionInput shape", () => {
-    const payload = buildDraftPayload(stubDraft, {
-      subject: "Mathematics",
-      level: "Form 2",
-    });
+    const payload = buildDraftPayload(
+      stubDraft,
+      { subject: "Mathematics", level: "Form 2" },
+      2,
+    );
 
     expect(payload.internalTitle).toBe("Q1");
     expect(payload.subject).toBe("Mathematics");
@@ -137,15 +140,12 @@ describe("buildDraftPayload", () => {
     expect(payload.content.type).toBe("doc");
   });
 
-  it("converts numeric marks from string", () => {
-    const draft: QuestionIngestDraft = {
-      ...stubDraft,
-      marks: "5",
-    };
-    const payload = buildDraftPayload(draft, {
-      subject: "Math",
-      level: "F2",
-    });
+  it("uses the explicitly provided numeric marks", () => {
+    const payload = buildDraftPayload(
+      stubDraft,
+      { subject: "Math", level: "F2" },
+      5,
+    );
     expect(payload.marks).toBe(5);
   });
 
@@ -154,10 +154,11 @@ describe("buildDraftPayload", () => {
       ...stubDraft,
       source_note: "Past paper 2023",
     };
-    const payload = buildDraftPayload(draft, {
-      subject: "Math",
-      level: "F2",
-    });
+    const payload = buildDraftPayload(
+      draft,
+      { subject: "Math", level: "F2" },
+      2,
+    );
     expect(payload.sourceNote).toBe("Past paper 2023");
   });
 });

@@ -53,7 +53,11 @@ export function QuestionScan({
     setMessage(undefined);
     const results = await batchSaveDrafts(
       token,
-      remaining.map(({ draft }) => ({ draft, override: { subject: "", level: "" } })),
+      remaining.map(({ draft }) => ({
+        draft,
+        override: { subject: "", level: "" },
+        marks: Number(draft.marks ?? 0),
+      })),
       { subject, level },
     );
     const okCount = results.filter((r) => r.ok).length;
@@ -100,7 +104,7 @@ export function QuestionScan({
         {drafts.map((d, i) => (
           <div key={i} className={`rounded border px-3 py-2 text-sm ${saved.has(i) ? "border-green-300 bg-green-50" : ""}`}>
             <span className="font-medium">{d.internal_title}</span>
-            <span className="ml-2 text-muted-foreground">· {String(d.marks)} marks</span>
+            <span className="ml-2 text-muted-foreground">· {d.marks ?? "—"} marks</span>
             {saved.has(i) && <span className="ml-2 text-green-600">✓</span>}
             <span className="ml-2 block truncate text-muted-foreground">{draftText(d)}</span>
           </div>

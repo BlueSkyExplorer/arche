@@ -112,6 +112,7 @@ class TemplateImportDraft:
     profile: TemplateProfileCreate
     confidence: dict[str, float] = field(default_factory=dict)
     unmapped: list[str] = field(default_factory=list)
+    needs_review: bool = False
 
 
 def import_template_docx(data: bytes) -> TemplateImportDraft:
@@ -232,4 +233,9 @@ def import_template_docx(data: bytes) -> TemplateImportDraft:
             "role_styles": {},
         }
     )
-    return TemplateImportDraft(profile=profile, confidence=confidence, unmapped=unmapped)
+    return TemplateImportDraft(
+        profile=profile,
+        confidence=confidence,
+        unmapped=unmapped,
+        needs_review=bool(unmapped),
+    )

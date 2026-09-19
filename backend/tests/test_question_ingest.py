@@ -48,9 +48,20 @@ def _texts(node) -> list[str]:
     return out
 
 
-def test_marks_default_to_zero_when_absent() -> None:
+def test_marks_absent_when_undetected() -> None:
     drafts = ingest_question_text("1. Write an essay.\n\n2. Draw a graph.\n")
-    assert all(d.marks == Decimal("0") for d in drafts)
+    assert all(d.marks is None for d in drafts)
+    assert all(d.needs_review for d in drafts)
+
+
+def test_detected_marks_are_recorded_as_declared_evidence() -> None:
+    drafts = ingest_question_text("1. Solve 2 + 2. (2 marks)\n")
+    q = drafts[0]
+    assert q.marks == Decimal("2")
+    assert not q.needs_review
+    assert len(q.declared_marks) == 1
+    assert q.declared_marks[0].value == Decimal("2")
+    assert "(2 marks)" in q.declared_marks[0].raw_text
 
 
 def test_internal_title_derived_from_first_line() -> None:

@@ -18,7 +18,7 @@ export type { DraftSaveResult, DraftOverride, SharedDefaults };
  */
 export async function batchSaveDrafts(
   token: string,
-  drafts: { draft: QuestionIngestDraft; override: DraftOverride }[],
+  drafts: { draft: QuestionIngestDraft; override: DraftOverride; marks: number }[],
   shared: SharedDefaults,
 ): Promise<DraftSaveResult[]> {
   // Validate shared defaults up-front
@@ -31,9 +31,9 @@ export async function batchSaveDrafts(
   const results: DraftSaveResult[] = [];
 
   for (let i = 0; i < drafts.length; i++) {
-    const { draft, override } = drafts[i];
+    const { draft, override, marks } = drafts[i];
     const effective = resolveEffective(parsed.data, override);
-    const payload = buildDraftPayload(draft, effective);
+    const payload = buildDraftPayload(draft, effective, marks);
 
     try {
       await createQuestion(token, payload);

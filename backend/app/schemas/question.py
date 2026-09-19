@@ -48,10 +48,22 @@ class QuestionRead(BaseModel):
     updated_at: datetime
 
 
+class DeclaredMark(BaseModel):
+    """A mark stated in source material, preserved as evidence (never scoring truth)."""
+
+    value: Decimal = Field(ge=0)
+    raw_text: str = ""
+    location: str = ""
+
+
 class QuestionIngestDraft(BaseModel):
     """A parsed-but-unsaved question, returned by POST /questions/ingest.
 
     Teachers review drafts before saving them via the normal POST /questions.
+    ``marks`` is the authoritative value, left ``None`` when the parser could
+    not detect any mark (never fabricated as zero); ``declared_marks`` holds
+    the evidence the source actually stated, and ``needs_review`` is set when
+    the parse was unreliable.
     """
     internal_title: str = Field(min_length=1, max_length=255)
     subject: str = Field(default="", max_length=100)
@@ -59,5 +71,7 @@ class QuestionIngestDraft(BaseModel):
     tags_json: list[str] = Field(default_factory=list)
     source_note: str | None = None
     content_json: DocNode
-    marks: Decimal = Field(ge=0)
+    marks: Decimal | None = Field(default=None, ge=0)
+    declared_marks: list[DeclaredMark] = Field(default_factory=list)
+    needs_review: bool = False
     status: str = Field(default="draft", pattern="^(draft|ready|archived)$")

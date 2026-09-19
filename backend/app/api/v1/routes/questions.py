@@ -47,6 +47,7 @@ async def question_ingest(
         filename = (file.filename or "").lower()
         data = await file.read()
         ext = validate_document_upload(filename, len(data))
+        lossy = ext == ".doc"
         if ext == ".doc":
             data = convert_doc_to_docx(data, settings)
         try:
@@ -56,6 +57,9 @@ async def question_ingest(
 
             doc = Document(BytesIO(data))
             drafts, attachments = _ingest_with_images(data, doc)
+            if lossy:
+                for draft in drafts:
+                    draft.needs_review = True
             if attachments:
                 storage = LocalDirStorage(settings.storage_local_dir)
                 asset_ids = [

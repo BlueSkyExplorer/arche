@@ -15,7 +15,7 @@ from uuid import UUID
 from docx import Document
 
 from app.schemas.content import DocNode
-from app.schemas.question import QuestionIngestDraft
+from app.schemas.question import DeclaredMark, QuestionIngestDraft
 from app.services.ai_client import AIClient, AIClientError
 from app.services.ai_schema import AIQuestion, ai_questions_to_drafts
 from app.services.docx_images import extract_cell_images
@@ -56,14 +56,11 @@ def _suggest_questions_ai(skeleton: str, client: AIClient) -> list[AIQuestion]:
     return [AIQuestion.model_validate(q) for q in obj.get("questions", [])]
 
 
-def _extract_marks(text: str) -> Decimal:
-    """Sum all mark tokens, applying xN/×N multipliers when present.
-
-    Handles patterns like ``(1分)x3`` or ``(2 marks)×2`` — the multiplier
-    immediately following a mark token means the per-answer mark times N
-    acceptable answers.  When no multiplier follows, the mark stands alone.
-    """
+def _parse_marks(text: str) -> tuple[Decimal, list[DeclaredMark]]:
+    """Sum all mark tokens (applying xN/×N multipliers) and record each stated
+    token as declared evidence. No marks -> (0, [])."""
     total = Decimal("0")
+    declared: list[DeclaredMark] = []
     for pattern in (_MARKS_EN, _MARKS_ZH):
         for match in pattern.finditer(text):
             base = Decimal(match.group(1))
@@ -73,7 +70,18 @@ def _extract_marks(text: str) -> Decimal:
             if mult_match:
                 base *= Decimal(mult_match.group(1))
             total += base
-    return total
+            declared.append(DeclaredMark(value=base, raw_text=match.group(0), location=""))
+    return total, declared
+
+
+def _extract_marks(text: str) -> Decimal:
+    """Sum all mark tokens, applying xN/×N multipliers when present.
+
+    Handles patterns like ``(1分)x3`` or ``(2 marks)×2`` — the multiplier
+    immediately following a mark token means the per-answer mark times N
+    acceptable answers.  When no multiplier follows, the mark stands alone.
+    """
+    return _parse_marks(text)[0]
 
 
 _QUESTION_LABEL = re.compile(
@@ -126,7 +134,14 @@ def _table_to_drafts(
     current_index = 0
 
     def new_question(q_label: str) -> dict:
-        return {"label": q_label, "total": Decimal("0"), "blocks": [], "sub": None, "subsub": None}
+        return {
+            "label": q_label,
+            "total": Decimal("0"),
+            "declared": [],
+            "blocks": [],
+            "sub": None,
+            "subsub": None,
+        }
 
     def add_text(text: str) -> None:
         if not text or current is None:
@@ -147,11 +162,15 @@ def _table_to_drafts(
             blocks = [_paragraph_node("")]
         for block in blocks:
             _fill_empty_subquestions(block)
+        draft_declared = current["declared"]
         drafts.append(
             QuestionIngestDraft(
                 internal_title=_title_from(current["label"], current_index + 1),
                 subject="", level="", tags_json=[], source_note=None,
-                marks=current["total"], status="draft",
+                marks=current["total"] if draft_declared else None,
+                declared_marks=draft_declared,
+                needs_review=not draft_declared,
+                status="draft",
                 content_json=_build_doc(blocks),
             )
         )
@@ -189,7 +208,9 @@ def _table_to_drafts(
             if text:
                 add_text(text)
             if marks_cell:
-                current["total"] += _extract_marks(marks_cell)
+                total, declared = _parse_marks(marks_cell)
+                current["total"] += total
+                current["declared"].extend(declared)
             if cell_images and current is not None:
                 for ci in range(len(row.cells)):
                     img = cell_images.get((table_index, row_index, ci))
@@ -266,7 +287,7 @@ def _draft_from_block(block: list[str], index: int) -> QuestionIngestDraft:
     # The question's total marks live on the stem line ("Q1. ... (2分)");
     # sub-part marks are already included in that total, so only parse the
     # first line — do NOT sum across the whole block.
-    marks = _extract_marks(block[0])
+    marks, declared = _parse_marks(block[0])
     blocks: list[dict] = []
     current_para: list[str] = []
     current_sub: dict | None = None
@@ -327,7 +348,9 @@ def _draft_from_block(block: list[str], index: int) -> QuestionIngestDraft:
         level="",
         tags_json=[],
         source_note=None,
-        marks=marks,
+        marks=marks if declared else None,
+        declared_marks=declared,
+        needs_review=not declared,
         status="draft",
         content_json=_build_doc(blocks),
     )

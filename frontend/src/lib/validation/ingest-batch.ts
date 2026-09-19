@@ -50,6 +50,7 @@ export type DraftSaveResult =
 export function buildDraftPayload(
   draft: QuestionIngestDraft,
   effective: { subject: string; level: string },
+  marks: number,
 ) {
   return {
     internalTitle: draft.internal_title,
@@ -58,7 +59,7 @@ export function buildDraftPayload(
     tags: draft.tags_json,
     sourceNote: draft.source_note ?? undefined,
     content: normalizeContentForWire(draft.content_json),
-    marks: Number(draft.marks),
+    marks,
     status: draft.status,
   };
 }

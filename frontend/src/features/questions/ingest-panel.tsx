@@ -32,6 +32,8 @@ type DraftEntry = {
   selected: boolean;
   /** Per-draft individual subject/level overrides (empty = no override). */
   override: DraftOverride;
+  /** Editable marks value (empty when the source stated none). */
+  marks: string;
   /** Error from last save attempt. Cleared on next attempt. */
   saveError?: string;
   /** True after this draft was successfully saved. */
@@ -64,6 +66,13 @@ function draftText(content: QuestionContent): string {
 }
 
 const EMPTY_OVERRIDE: DraftOverride = { subject: "", level: "" };
+
+function validateMarks(s: string): string | undefined {
+  if (s.trim() === "") return "Marks required / 分數必填";
+  const n = Number(s);
+  if (!Number.isFinite(n) || n < 0) return "Invalid marks / 分數無效";
+  return undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -106,6 +115,7 @@ export function IngestPanel({
           draft,
           selected: true,
           override: { ...EMPTY_OVERRIDE },
+          marks: draft.marks != null ? String(draft.marks) : "",
         })),
       );
       if (result.length === 0)
@@ -158,10 +168,17 @@ export function IngestPanel({
     setDrafts((ds) =>
       ds.map((d, i) => (i === index ? { ...d, saveError: undefined } : d)),
     );
+    const marksErr = validateMarks(entry.marks);
+    if (marksErr) {
+      setDrafts((ds) =>
+        ds.map((d, i) => (i === index ? { ...d, saveError: marksErr } : d)),
+      );
+      return;
+    }
     try {
       await createQuestion(
         token,
-        buildDraftPayload(entry.draft, effective),
+        buildDraftPayload(entry.draft, effective, Number(entry.marks)),
       );
       setDrafts((ds) =>
         ds.map((d, i) => (i === index ? { ...d, saved: true } : d)),
@@ -196,9 +213,26 @@ export function IngestPanel({
     );
 
     try {
+      const invalidMarks = selected.find((d) => validateMarks(d.marks));
+      if (invalidMarks) {
+        setDrafts((ds) =>
+          ds.map((d) =>
+            d.selected && !d.saved && validateMarks(d.marks)
+              ? { ...d, saveError: validateMarks(d.marks)! }
+              : d,
+          ),
+        );
+        setSaving(false);
+        return;
+      }
+
       const results: DraftSaveResult[] = await batchSaveDrafts(
         token,
-        selected.map((d) => ({ draft: d.draft, override: d.override })),
+        selected.map((d) => ({
+          draft: d.draft,
+          override: d.override,
+          marks: Number(d.marks),
+        })),
         { subject: sharedSubject, level: sharedLevel },
       );
 
@@ -404,13 +438,46 @@ export function IngestPanel({
                   <div className="min-w-0 flex-1">
                     <p className="font-medium">
                       {entry.draft.internal_title}{" "}
-                      <span className="text-muted-foreground">
-                        · {String(entry.draft.marks)} marks
-                      </span>
+                      {entry.draft.needs_review && (
+                        <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 align-middle text-xs font-normal text-amber-700">
+                          Needs review / 需審查
+                        </span>
+                      )}
                     </p>
+                    {entry.draft.declared_marks.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Declared / 來源聲明:{" "}
+                        {entry.draft.declared_marks
+                          .map((m) => m.raw_text || String(m.value))
+                          .join("  ")}
+                      </p>
+                    )}
                     <p className="whitespace-pre-wrap text-sm text-muted-foreground">
                       {draftText(entry.draft.content_json)}
                     </p>
+                    <div className="mt-1 flex items-center gap-2">
+                      <Label
+                        htmlFor={`marks-${origIdx}`}
+                        className="text-xs text-muted-foreground"
+                      >
+                        Marks / 分數
+                      </Label>
+                      <Input
+                        id={`marks-${origIdx}`}
+                        size={1}
+                        className="h-7 w-24 text-sm"
+                        inputMode="decimal"
+                        value={entry.marks}
+                        placeholder="0"
+                        onChange={(e) =>
+                          setDrafts((ds) =>
+                            ds.map((d, j) =>
+                              j === origIdx ? { ...d, marks: e.target.value } : d,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
                   </div>
                   <Button
                     type="button"
