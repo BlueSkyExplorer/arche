@@ -80,6 +80,24 @@ def test_unmappable_body_marks_flag_needs_review() -> None:
     assert q.needs_review
 
 
+def test_declared_vs_computed_mismatch_raises_validation_issue() -> None:
+    # Stem states (5分) but sub-parts sum to 2+2=4 -> mismatch.
+    drafts = ingest_question_text("Q1. 題目。（5分）\n\n(a) 一。（2分）\n(b) 二。（2分）\n")
+    q = drafts[0]
+    assert len(q.validation_issues) == 1
+    assert q.needs_review
+    # Neither value is silently changed: the authoritative mark is the stated total.
+    assert q.marks == Decimal("5")
+
+
+def test_declared_total_matching_leaf_sum_has_no_issue() -> None:
+    drafts = ingest_question_text("Q1. 題目。（4分）\n\n(a) 一。（2分）\n(b) 二。（2分）\n")
+    q = drafts[0]
+    assert q.validation_issues == []
+    assert not q.needs_review
+    assert q.marks == Decimal("4")
+
+
 def test_table_marks_declared_at_subpart_location() -> None:
     from io import BytesIO
 

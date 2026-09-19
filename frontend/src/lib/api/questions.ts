@@ -55,6 +55,7 @@ export type QuestionIngestDraft = {
   marks: string | number | null;
   declared_marks: DeclaredMark[];
   needs_review: boolean;
+  validation_issues: string[];
   status: QuestionStatus;
 };
 

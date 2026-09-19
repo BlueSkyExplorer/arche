@@ -24,6 +24,7 @@ const stubDraft: QuestionIngestDraft = {
   marks: 2,
   declared_marks: [],
   needs_review: false,
+  validation_issues: [],
   status: "draft",
 };
 

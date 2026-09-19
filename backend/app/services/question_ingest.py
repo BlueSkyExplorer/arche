@@ -84,6 +84,16 @@ def _extract_marks(text: str) -> Decimal:
     return _parse_marks(text)[0]
 
 
+def _declared_mismatch(declared: list[DeclaredMark]) -> str | None:
+    """Return a human-readable mismatch when a stated question-level total does
+    not equal the sum of the stated sub-part (leaf) marks; else None."""
+    total = sum((m.value for m in declared if m.location == ""), Decimal("0"))
+    leaves = sum((m.value for m in declared if m.location != ""), Decimal("0"))
+    if total > 0 and leaves > 0 and total != leaves:
+        return f"Declared total {total} ≠ computed leaf total {leaves}"
+    return None
+
+
 _QUESTION_LABEL = re.compile(
     r"^\s*(?:Q\s*\d+\s*[.)]?|第?\s*\d+\s*題|\d+\s*[.)、．])\s*$",
     re.IGNORECASE,
@@ -163,13 +173,18 @@ def _table_to_drafts(
         for block in blocks:
             _fill_empty_subquestions(block)
         draft_declared = current["declared"]
+        validation_issues: list[str] = []
+        mismatch = _declared_mismatch(draft_declared)
+        if mismatch is not None:
+            validation_issues.append(mismatch)
         drafts.append(
             QuestionIngestDraft(
                 internal_title=_title_from(current["label"], current_index + 1),
                 subject="", level="", tags_json=[], source_note=None,
                 marks=current["total"] if draft_declared else None,
                 declared_marks=draft_declared,
-                needs_review=not draft_declared,
+                needs_review=(not draft_declared) or bool(validation_issues),
+                validation_issues=validation_issues,
                 status="draft",
                 content_json=_build_doc(blocks),
             )
@@ -363,6 +378,11 @@ def _draft_from_block(block: list[str], index: int) -> QuestionIngestDraft:
     if not blocks:
         blocks.append(_paragraph_node(first))
 
+    validation_issues: list[str] = []
+    mismatch = _declared_mismatch(declared)
+    if mismatch is not None:
+        validation_issues.append(mismatch)
+
     return QuestionIngestDraft(
         internal_title=_title_from(first, index),
         subject="",
@@ -371,7 +391,8 @@ def _draft_from_block(block: list[str], index: int) -> QuestionIngestDraft:
         source_note=None,
         marks=stem_marks if stem_has_marks else None,
         declared_marks=declared,
-        needs_review=(not declared) or ambiguous,
+        needs_review=(not declared) or ambiguous or bool(validation_issues),
+        validation_issues=validation_issues,
         status="draft",
         content_json=_build_doc(blocks),
     )

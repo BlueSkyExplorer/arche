@@ -452,6 +452,11 @@ export function IngestPanel({
                           .join("  ")}
                       </p>
                     )}
+                    {entry.draft.validation_issues.length > 0 && (
+                      <p className="text-xs text-destructive">
+                        {entry.draft.validation_issues.join(" · ")}
+                      </p>
+                    )}
                     <p className="whitespace-pre-wrap text-sm text-muted-foreground">
                       {draftText(entry.draft.content_json)}
                     </p>

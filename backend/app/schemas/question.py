@@ -74,4 +74,5 @@ class QuestionIngestDraft(BaseModel):
     marks: Decimal | None = Field(default=None, ge=0)
     declared_marks: list[DeclaredMark] = Field(default_factory=list)
     needs_review: bool = False
+    validation_issues: list[str] = Field(default_factory=list)
     status: str = Field(default="draft", pattern="^(draft|ready|archived)$")
