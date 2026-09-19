@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QuestionEditor } from "./editor/question-editor";
 import { IngestPanel } from "./ingest-panel";
-import { contentSchema, hasSubQuestions, isValidContent, leafMarksTotal, normalizeContentForWire, type QuestionContent } from "@/lib/validation/content";
+import { contentSchema, hasSubQuestions, isValidContent, normalizeContentForWire, type QuestionContent } from "@/lib/validation/content";
 import { ApiError } from "@/lib/api/client";
 import { createQuestion, listQuestions, updateQuestion, type Question, type QuestionInput } from "@/lib/api/questions";
 
@@ -74,13 +74,11 @@ export default function QuestionsPage({ token }: { token: string }) {
     } else {
       content.marks = values.marks; // standalone: doc.marks is the authoritative leaf
     }
-    const total = multiPart ? leafMarksTotal(content) : values.marks;
     const input: QuestionInput = {
       internalTitle: values.internalTitle,
       subject: values.subject,
       level: values.level,
       tags: values.tagsText.split(/[,，]/u).map((tag) => tag.trim()).filter(Boolean),
-      marks: total, // legacy column mirror; removed in ticket 07
       sourceNote: values.sourceNote,
       status: values.status,
       content,

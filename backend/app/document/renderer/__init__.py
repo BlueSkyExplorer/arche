@@ -63,11 +63,6 @@ class RenderQuestion(RenderModel):
     position: int
     content: DocNode
     marks: Decimal = Field(ge=0)
-    marks_override: Decimal | None = Field(default=None, ge=0)
-
-    @property
-    def effective_marks(self) -> Decimal:
-        return self.marks_override if self.marks_override is not None else self.marks
 
 
 class RenderSection(RenderModel):
@@ -491,7 +486,7 @@ def render_paper(
                 )
                 blocks.append(default_space)
             marks = _format_marks(
-                question.effective_marks, config.question_style_config_json.marks_format
+                question.marks, config.question_style_config_json.marks_format
             )
             display = config.question_style_config_json.marks_display
             final_is_separate_block = bool(blocks) and isinstance(

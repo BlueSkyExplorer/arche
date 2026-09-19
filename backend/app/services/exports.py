@@ -61,7 +61,6 @@ def _render(
                     position=pq.position,
                     content=(snapshot := DocNode.model_validate(pq.content_snapshot_json)),
                     marks=computed_marks(snapshot),
-                    marks_override=pq.marks_override,
                 )
                 for pq, question in pairs
             ),

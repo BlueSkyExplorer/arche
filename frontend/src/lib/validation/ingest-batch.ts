@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { QuestionIngestDraft } from "@/lib/api/questions";
-import { normalizeContentForWire } from "@/lib/validation/content";
+import { hasSubQuestions, normalizeContentForWire } from "@/lib/validation/content";
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -52,14 +52,19 @@ export function buildDraftPayload(
   effective: { subject: string; level: string },
   marks: number,
 ) {
+  const content = normalizeContentForWire(draft.content_json);
+  if (hasSubQuestions(content)) {
+    delete content.marks; // multipart: root (doc) marks must be absent — non-leaf
+  } else {
+    content.marks = marks; // standalone: doc.marks is the authoritative leaf
+  }
   return {
     internalTitle: draft.internal_title,
     subject: effective.subject,
     level: effective.level,
     tags: draft.tags_json,
     sourceNote: draft.source_note ?? undefined,
-    content: normalizeContentForWire(draft.content_json),
-    marks,
+    content,
     status: draft.status,
   };
 }

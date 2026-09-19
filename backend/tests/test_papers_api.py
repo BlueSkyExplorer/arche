@@ -17,10 +17,10 @@ def question_payload(title: str, text: str, marks: str) -> dict[str, Any]:
         "internal_title": title,
         "subject": "Math",
         "level": "S1",
-        "marks": marks,
         "status": "ready",
         "content_json": {
             "type": "doc",
+            "marks": marks,
             "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}],
         },
     }
@@ -82,7 +82,7 @@ def test_paper_edit_reorder_numbering_and_section_cascade(
 
     section_id = sections[0]["id"]
     first_order = [
-        {"question_id": questions[0]["id"], "marks_override": "3.25"},
+        {"question_id": questions[0]["id"]},
         {"question_id": questions[1]["id"]},
     ]
     assert (
@@ -92,26 +92,26 @@ def test_paper_edit_reorder_numbering_and_section_cascade(
         == 200
     )
     detail = api_client.get(f"/api/v1/papers/{paper['id']}").json()
-    assert Decimal(detail["total_marks"]) == Decimal("7.25")
+    assert Decimal(detail["total_marks"]) == Decimal("6.5")
     selected = next(section for section in detail["sections"] if section["id"] == section_id)
     assert [row["label"] for row in selected["questions"]] == ["1.", "2."]
     # Paper detail must embed the reusable question payload (the paper builder renders from it).
     embedded = {row["question_id"]: row["question"] for row in selected["questions"]}
     assert set(embedded) == {questions[0]["id"], questions[1]["id"]}
     assert embedded[questions[0]["id"]]["internal_title"] == "Q1"
-    assert embedded[questions[0]["id"]]["marks"] == "2.50"
+    assert embedded[questions[0]["id"]]["marks"] == "2.5"
     assert embedded[questions[0]["id"]]["content_json"]["type"] == "doc"
 
     originals = {}
     for item in questions:
         row = db_session.get(Question, item["id"])
         assert row is not None
-        originals[item["id"]] = (copy.deepcopy(row.content_json), row.updated_at, row.marks)
+        originals[item["id"]] = (copy.deepcopy(row.content_json), row.updated_at)
     reordered = api_client.put(
         f"/api/v1/papers/{paper['id']}/sections/{section_id}/questions",
         json=[
             {"question_id": questions[1]["id"]},
-            {"question_id": questions[0]["id"], "marks_override": "3.25"},
+            {"question_id": questions[0]["id"]},
         ],
     )
     assert reordered.status_code == 200
@@ -123,7 +123,7 @@ def test_paper_edit_reorder_numbering_and_section_cascade(
     for item in questions:
         row = db_session.get(Question, item["id"])
         assert row is not None
-        assert (row.content_json, row.updated_at, row.marks) == originals[item["id"]]
+        assert (row.content_json, row.updated_at) == originals[item["id"]]
 
     assert (
         api_client.delete(f"/api/v1/papers/{paper['id']}/sections/{section_id}").status_code == 204
@@ -238,7 +238,6 @@ def test_paper_total_is_sum_of_leaf_marks(
             "internal_title": "Multi-part",
             "subject": "Math",
             "level": "S1",
-            "marks": "99",  # legacy field; leaf marks must win
             "status": "ready",
             "content_json": content,
         },

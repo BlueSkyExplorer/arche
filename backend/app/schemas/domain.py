@@ -55,7 +55,6 @@ class PaperQuestionRead(OrmReadModel):
     paper_section_id: UUID
     question_id: UUID
     position: int
-    marks_override: Decimal | None
     settings_json: dict[str, Any]
     label: str | None = None
     question: QuestionRead | None = None
@@ -109,7 +108,6 @@ class SectionPatch(BaseModel):
 
 class PaperQuestionPut(BaseModel):
     question_id: UUID
-    marks_override: Decimal | None = Field(default=None, ge=0)
 
 
 class PaperSectionDetail(PaperSectionRead):

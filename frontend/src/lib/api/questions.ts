@@ -24,12 +24,11 @@ export type QuestionInput = {
   tags: string[];
   sourceNote?: string;
   content: QuestionContent;
-  marks: number;
   status: QuestionStatus;
 };
 
 function toPayload(input: QuestionInput) {
-  return { internal_title: input.internalTitle, subject: input.subject, level: input.level, tags_json: input.tags, source_note: input.sourceNote || null, content_json: input.content, marks: input.marks, status: input.status };
+  return { internal_title: input.internalTitle, subject: input.subject, level: input.level, tags_json: input.tags, source_note: input.sourceNote || null, content_json: input.content, status: input.status };
 }
 
 export async function listQuestions(token: string): Promise<Question[]> {

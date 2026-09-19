@@ -11,12 +11,11 @@ from app.services.numbering import (
 )
 
 
-def question(name: str, position: int, override: str | None = None) -> QuestionForNumbering:
+def question(name: str, position: int) -> QuestionForNumbering:
     return QuestionForNumbering(
         question_id=name,
         position=position,
         marks=Decimal("2"),
-        marks_override=Decimal(override) if override else None,
         sub_question_count=3,
     )
 
@@ -43,10 +42,10 @@ def test_subpart_styles() -> None:
     assert numbered[0].sub_question_labels == ("(A)", "(B)", "(C)")
 
 
-def test_total_marks_respects_override() -> None:
-    questions = [question("a", 1), question("b", 2, "3.5")]
-    assert total_marks(questions) == Decimal("5.5")
-    assert total_marks(number_questions([SectionForNumbering(1, questions)])) == Decimal("5.5")
+def test_total_marks_sums_question_marks() -> None:
+    questions = [question("a", 1), question("b", 2)]
+    assert total_marks(questions) == Decimal("4")
+    assert total_marks(number_questions([SectionForNumbering(1, questions)])) == Decimal("4")
 
 
 def test_question_label_q_prefix() -> None:
