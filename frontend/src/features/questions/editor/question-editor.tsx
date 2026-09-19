@@ -20,7 +20,12 @@ import { SubQuestionNode } from "./sub-question-node";
 import { QuestionTableCell } from "./table-cell-node";
 import type { QuestionContent } from "@/lib/validation/content";
 
-const EMPTY_CONTENT: QuestionContent = { type: "doc", content: [{ type: "paragraph" }] };
+// The editor never sees the doc-level scalar `marks` (it is a form-level leaf, and
+// `marks` collides with ProseMirror's text-formatting marks). The page assembles
+// and strips it at the boundary.
+type EditorContent = Omit<QuestionContent, "marks">;
+
+const EMPTY_CONTENT: EditorContent = { type: "doc", content: [{ type: "paragraph" }] };
 
 function cleanPastedHtml(html: string) {
   // Preserve semantic structure for ProseMirror, while dropping source-app styles.
@@ -34,7 +39,7 @@ function cleanPastedHtml(html: string) {
   return document.body.innerHTML;
 }
 
-type Props = { value: QuestionContent; onChange: (value: QuestionContent) => void; onReady?: (editor: Editor) => void; disabled?: boolean };
+type Props = { value: EditorContent; onChange: (value: EditorContent) => void; onReady?: (editor: Editor) => void; disabled?: boolean };
 
 export function QuestionEditor({ value, onChange, onReady, disabled = false }: Props) {
   const editor = useEditor({
@@ -50,7 +55,7 @@ export function QuestionEditor({ value, onChange, onReady, disabled = false }: P
       Placeholder.configure({ placeholder: "輸入題目… Type a question…" }),
     ],
     editorProps: { attributes: { class: "question-editor-content", "aria-label": "Question content / 題目內容" }, transformPastedHTML: cleanPastedHtml },
-    onUpdate: ({ editor: current }) => onChange(current.getJSON() as QuestionContent),
+    onUpdate: ({ editor: current }) => onChange(current.getJSON() as EditorContent),
     onCreate: ({ editor: current }) => onReady?.(current),
   });
 

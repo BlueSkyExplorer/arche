@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QuestionEditor } from "./editor/question-editor";
 import { IngestPanel } from "./ingest-panel";
-import { contentSchema, isValidContent, normalizeContentForWire, type QuestionContent } from "@/lib/validation/content";
+import { contentSchema, hasSubQuestions, isValidContent, leafMarksTotal, normalizeContentForWire, type QuestionContent } from "@/lib/validation/content";
 import { ApiError } from "@/lib/api/client";
 import { createQuestion, listQuestions, updateQuestion, type Question, type QuestionInput } from "@/lib/api/questions";
 
@@ -44,14 +44,47 @@ export default function QuestionsPage({ token }: { token: string }) {
   }, [token]);
 
   const openCreate = () => { setEditing(undefined); setSaveError(undefined); form.reset(defaults); setDialogOpen(true); };
-  const openEdit = (question: Question) => { setEditing(question); setSaveError(undefined); form.reset({ internalTitle: question.internal_title, subject: question.subject, level: question.level, tagsText: question.tags_json.join(", "), marks: Number(question.marks), sourceNote: question.source_note ?? "", status: question.status, content: normalizeContentForWire(question.content_json) }); setDialogOpen(true); };
+  const openEdit = (question: Question) => {
+    setEditing(question);
+    setSaveError(undefined);
+    const editorContent = normalizeContentForWire(question.content_json);
+    delete editorContent.marks; // doc-level mark lives in the form's marks field, not the editor
+    form.reset({
+      internalTitle: question.internal_title,
+      subject: question.subject,
+      level: question.level,
+      tagsText: question.tags_json.join(", "),
+      marks: Number(question.marks),
+      sourceNote: question.source_note ?? "",
+      status: question.status,
+      content: editorContent,
+    });
+    setDialogOpen(true);
+  };
   const submit = form.handleSubmit(async (values) => {
     setSaveError(undefined);
     if (!isValidContent(values.content)) {
       form.setError("content", { message: "Invalid question content / 題目內容格式不正確" });
       return;
     }
-    const input: QuestionInput = { internalTitle: values.internalTitle, subject: values.subject, level: values.level, tags: values.tagsText.split(/[,，]/u).map((tag) => tag.trim()).filter(Boolean), marks: values.marks, sourceNote: values.sourceNote, status: values.status, content: normalizeContentForWire(values.content) };
+    const content = normalizeContentForWire(values.content);
+    const multiPart = hasSubQuestions(content);
+    if (multiPart) {
+      delete content.marks; // multipart: root (doc) marks must be absent — non-leaf
+    } else {
+      content.marks = values.marks; // standalone: doc.marks is the authoritative leaf
+    }
+    const total = multiPart ? leafMarksTotal(content) : values.marks;
+    const input: QuestionInput = {
+      internalTitle: values.internalTitle,
+      subject: values.subject,
+      level: values.level,
+      tags: values.tagsText.split(/[,，]/u).map((tag) => tag.trim()).filter(Boolean),
+      marks: total, // legacy column mirror; removed in ticket 07
+      sourceNote: values.sourceNote,
+      status: values.status,
+      content,
+    };
     try { if (editing) await updateQuestion(token, editing.id, input); else await createQuestion(token, input); setDialogOpen(false); await load(); } catch (error) { setSaveError(errorMessage(error)); }
   });
 
@@ -65,7 +98,10 @@ export default function QuestionsPage({ token }: { token: string }) {
           <Field label="Internal title / 內部標題" error={form.formState.errors.internalTitle?.message}><Input {...form.register("internalTitle")} /></Field>
           <Field label="Subject / 科目" error={form.formState.errors.subject?.message}><Input {...form.register("subject")} /></Field>
           <Field label="Level / 級別" error={form.formState.errors.level?.message}><Input {...form.register("level")} /></Field>
-          <Field label="Marks / 分數" error={form.formState.errors.marks?.message}><Input type="number" min="0.01" step="0.01" {...form.register("marks", { valueAsNumber: true })} /></Field>
+          <Field label="Marks / 分數" error={form.formState.errors.marks?.message}>
+            <Input type="number" min="0.01" step="0.01" {...form.register("marks", { valueAsNumber: true })} />
+            <span className="text-xs text-muted-foreground">多子題題目總分由各子題分數加總；此欄只影響無子題的題目。</span>
+          </Field>
           <Field label="Tags / 標籤（逗號分隔）"><Input placeholder="代數, 因式分解" {...form.register("tagsText")} /></Field>
           <Field label="Status / 狀態"><select className="h-9 rounded-md border bg-background px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" {...form.register("status")}><option value="draft">Draft / 草稿</option><option value="ready">Ready / 就緒</option></select></Field>
           <Field label="Source note / 來源註記" className="sm:col-span-2"><Input {...form.register("sourceNote")} /></Field>
