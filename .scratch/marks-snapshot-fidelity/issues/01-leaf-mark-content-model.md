@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A standalone question with no sub-parts can carry a mark on the question root (it is its own leaf).
-- [ ] A nested sub-question that has no children can carry a mark.
-- [ ] A node with children *and* an authoritative mark is rejected at validation time, not merely "not counted" during aggregation.
-- [ ] Ancestor totals are computed as the sum of descendant leaf marks, with no parent-held `own_marks`.
-- [ ] The legacy single question-level `marks` and the paper-level `marks_override` continue to behave exactly as before, so nothing breaks while the new form lands beside the old.
+- [x] A standalone question with no sub-parts can carry a mark on the question root (it is its own leaf).
+- [x] A nested sub-question that has no children can carry a mark.
+- [x] A node with children *and* an authoritative mark is rejected at validation time, not merely "not counted" during aggregation.
+- [x] Ancestor totals are computed as the sum of descendant leaf marks, with no parent-held `own_marks`.
+- [x] The legacy single question-level `marks` and the paper-level `marks_override` continue to behave exactly as before, so nothing breaks while the new form lands beside the old.

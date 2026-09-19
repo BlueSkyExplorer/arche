@@ -4,9 +4,9 @@
 
 **Blocked by:** 02, 06.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] No consumer reads the legacy single question-level `marks` or the paper-level `marks_override`.
-- [ ] The two legacy fields are removed via an additive migration.
-- [ ] Numbering, export, and the renderer read only leaf marks.
-- [ ] Existing questions and papers keep working through and after the migration.
+- [x] No consumer reads the legacy single question-level `marks` or the paper-level `marks_override`.
+- [x] The two legacy fields are removed via an additive migration.
+- [x] Numbering, export, and the renderer read only leaf marks.
+- [x] Existing questions and papers keep working through and after the migration.

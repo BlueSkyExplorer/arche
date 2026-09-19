@@ -4,8 +4,8 @@
 
 **Blocked by:** 04, 05.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A mismatch between `declared_marks` and computed marks produces a validation issue.
-- [ ] Neither the declared value nor the computed value is silently edited to make them match.
-- [ ] The issue is surfaced to the teacher for review in the basic Tier 1 form.
+- [x] A mismatch between `declared_marks` and computed marks produces a validation issue.
+- [x] Neither the declared value nor the computed value is silently edited to make them match.
+- [x] The issue is surfaced to the teacher for review in the basic Tier 1 form.

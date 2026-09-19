@@ -4,11 +4,11 @@
 
 **Blocked by:** 01.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Stated marks are stored as `declared_marks` evidence at the level the source states them (paper, section, question, sub-part).
-- [ ] A non-leaf node may carry `declared_marks` (e.g. `4` stated above `(a)=2, (b)=2`) but never an authoritative mark — evidence and truth are kept distinct.
-- [ ] A mark the parser failed to detect is left absent, never set to `0`.
-- [ ] Content the parser cannot reliably map is preserved (raw fragment/reference) and flagged `needs_review`, never dropped.
-- [ ] A lossy `.doc` conversion is flagged `needs_review` rather than reported as a clean import.
-- [ ] The ingest review UI displays declared evidence and `needs_review` flags before the teacher commits anything.
+- [x] Stated marks are stored as `declared_marks` evidence at the level the source states them (paper, section, question, sub-part).
+- [x] A non-leaf node may carry `declared_marks` (e.g. `4` stated above `(a)=2, (b)=2`) but never an authoritative mark — evidence and truth are kept distinct.
+- [x] A mark the parser failed to detect is left absent, never set to `0`.
+- [x] Content the parser cannot reliably map is preserved (raw fragment/reference) and flagged `needs_review`, never dropped.
+- [x] A lossy `.doc` conversion is flagged `needs_review` rather than reported as a clean import.
+- [x] The ingest review UI displays declared evidence and `needs_review` flags before the teacher commits anything.

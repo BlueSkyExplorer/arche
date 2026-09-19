@@ -1,8 +1,17 @@
-Status: ready-for-agent
+Status: done
 
 # Marks, Snapshots, and Import Fidelity (Tier 1)
 
 The first implementation tier of the marks-truth and reproducibility model. Governed by `CONTEXT.md` and ADR-0002 (marks truth) / ADR-0003 (immutability & reproducibility).
+
+## Implementation Record
+
+Tier 1 is complete. All seven tickets (01–07) are implemented, verified, and merged to `main`.
+
+- **Merge commit:** `c6d308c` (`merge: remove legacy Question.marks / marks_override (ticket 07)`).
+- **Ticket → commit map:** 01 `3824032` · 02 `5dba677` · 03 `638dc37` · 04 `7d4c2dc`, `3001b6e` · 05 `b0f2359` · 06 `16d9133` · 07 `b0996bf`.
+- **Verification:** backend `ruff`/`mypy`/`pytest` (141 passed), frontend `tsc`/`eslint`/`vitest` (20 passed), plus an end-to-end smoke test on the live tunnel (standalone marks, multipart leaf marks, paper snapshot immutability, override-removal, ingest unknown-marks → `needs_review`/null, preview/export agreement).
+- **Deferred to follow-ups:** source-deletion snapshot preservation (`08`), `.doc` lossy-import provenance (`09`) — both filed `needs-triage`, out of Tier 1 scope.
 
 ## Problem Statement
 

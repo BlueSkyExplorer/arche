@@ -4,10 +4,10 @@
 
 **Blocked by:** 01.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Adding a question to a section materializes an independent copy of its content.
-- [ ] The paper records which source question each snapshot came from (provenance).
-- [ ] Editing the source question afterwards does not change the assembled paper's content or marks.
-- [ ] Deleting or archiving the source question does not break or alter the assembled paper.
-- [ ] Reordering operates on the paper's snapshots and never mutates the source questions.
+- [x] Adding a question to a section materializes an independent copy of its content.
+- [x] The paper records which source question each snapshot came from (provenance).
+- [x] Editing the source question afterwards does not change the assembled paper's content or marks.
+- [x] Deleting or archiving the source question does not break or alter the assembled paper.
+- [x] Reordering operates on the paper's snapshots and never mutates the source questions.
