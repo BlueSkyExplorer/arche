@@ -56,9 +56,9 @@ def _suggest_questions_ai(skeleton: str, client: AIClient) -> list[AIQuestion]:
     return [AIQuestion.model_validate(q) for q in obj.get("questions", [])]
 
 
-def _parse_marks(text: str) -> tuple[Decimal, list[DeclaredMark]]:
+def _parse_marks(text: str, location: str = "") -> tuple[Decimal, list[DeclaredMark]]:
     """Sum all mark tokens (applying xN/×N multipliers) and record each stated
-    token as declared evidence. No marks -> (0, [])."""
+    token as declared evidence at the given location. No marks -> (0, [])."""
     total = Decimal("0")
     declared: list[DeclaredMark] = []
     for pattern in (_MARKS_EN, _MARKS_ZH):
@@ -70,7 +70,7 @@ def _parse_marks(text: str) -> tuple[Decimal, list[DeclaredMark]]:
             if mult_match:
                 base *= Decimal(mult_match.group(1))
             total += base
-            declared.append(DeclaredMark(value=base, raw_text=match.group(0), location=""))
+            declared.append(DeclaredMark(value=base, raw_text=match.group(0), location=location))
     return total, declared
 
 
@@ -208,7 +208,14 @@ def _table_to_drafts(
             if text:
                 add_text(text)
             if marks_cell:
-                total, declared = _parse_marks(marks_cell)
+                sub_node = current.get("sub")
+                subsub_node = current.get("subsub")
+                location = ""
+                if sub_node is not None:
+                    location += sub_node["attrs"]["label"]
+                if subsub_node is not None:
+                    location += subsub_node["attrs"]["label"]
+                total, declared = _parse_marks(marks_cell, location=location)
                 current["total"] += total
                 current["declared"].extend(declared)
             if cell_images and current is not None:
@@ -285,9 +292,11 @@ def _split_questions(paragraphs: list[str]) -> list[list[str]]:
 def _draft_from_block(block: list[str], index: int) -> QuestionIngestDraft:
     first = _QUEST_START.sub("", block[0]).strip()
     # The question's total marks live on the stem line ("Q1. ... (2分)");
-    # sub-part marks are already included in that total, so only parse the
-    # first line — do NOT sum across the whole block.
-    marks, declared = _parse_marks(block[0])
+    # sub-part marks are captured as declared evidence at their location, and
+    # a mark token on a line we cannot attribute gets flagged for review.
+    stem_marks, declared = _parse_marks(block[0], location="")
+    stem_has_marks = bool(declared)
+    ambiguous = False
     blocks: list[dict] = []
     current_para: list[str] = []
     current_sub: dict | None = None
@@ -307,33 +316,45 @@ def _draft_from_block(block: list[str], index: int) -> QuestionIngestDraft:
         else:
             blocks.append(_paragraph_node(text))
 
-    for line in block:
+    for idx, line in enumerate(block):
         sub2_match = _SUB_LEVEL2.match(line)
         sub1_match = _SUB_LEVEL1.match(line)
         if sub2_match and current_sub is not None:
             flush_para()
+            label = _normalize_label(sub2_match.group(1))
             current_subsub = {
                 "type": "subQuestion",
-                "attrs": {"label": _normalize_label(sub2_match.group(1))},
+                "attrs": {"label": label},
                 "content": [],
             }
             current_sub["content"].append(current_subsub)
+            _, sub_declared = _parse_marks(
+                line, location=current_sub["attrs"]["label"] + label
+            )
+            declared.extend(sub_declared)
             sub_text = _SUB_LEVEL2.sub("", line).strip()
             if sub_text:
                 current_subsub["content"].append(_paragraph_node(sub_text))
         elif sub1_match:
             flush_para()
+            label = _normalize_label(sub1_match.group(1))
             current_sub = {
                 "type": "subQuestion",
-                "attrs": {"label": _normalize_label(sub1_match.group(1))},
+                "attrs": {"label": label},
                 "content": [],
             }
             current_subsub = None
             blocks.append(current_sub)
+            _, sub_declared = _parse_marks(line, location=label)
+            declared.extend(sub_declared)
             sub_text = _SUB_LEVEL1.sub("", line).strip()
             if sub_text:
                 current_sub["content"].append(_paragraph_node(sub_text))
         else:
+            if idx > 0:
+                _, body_declared = _parse_marks(line, location="")
+                if body_declared:
+                    ambiguous = True
             current_para.append(line)
     flush_para()
 
@@ -348,9 +369,9 @@ def _draft_from_block(block: list[str], index: int) -> QuestionIngestDraft:
         level="",
         tags_json=[],
         source_note=None,
-        marks=marks if declared else None,
+        marks=stem_marks if stem_has_marks else None,
         declared_marks=declared,
-        needs_review=not declared,
+        needs_review=(not declared) or ambiguous,
         status="draft",
         content_json=_build_doc(blocks),
     )

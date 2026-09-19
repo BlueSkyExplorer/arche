@@ -48,31 +48,38 @@ export function QuestionScan({
       setError("Subject and level are required / 請填寫科目與級別");
       return;
     }
+    const saveable = remaining.filter(({ draft }) => draft.marks != null);
+    const skipped = remaining.length - saveable.length;
+    if (saveable.length === 0) {
+      setError("No saveable questions with marks / 沒有可分數的題目待審查");
+      return;
+    }
     setSaving(true);
     setError(undefined);
     setMessage(undefined);
     const results = await batchSaveDrafts(
       token,
-      remaining.map(({ draft }) => ({
+      saveable.map(({ draft }) => ({
         draft,
         override: { subject: "", level: "" },
-        marks: Number(draft.marks ?? 0),
+        marks: Number(draft.marks!),
       })),
       { subject, level },
     );
     const okCount = results.filter((r) => r.ok).length;
     const indices = results
       .filter((r) => r.ok)
-      .map((r) => remaining[r.index].index);
+      .map((r) => saveable[r.index].index);
     setSaved((prev) => {
       const next = new Set(prev);
       for (const i of indices) next.add(i);
       return next;
     });
     setMessage(
-      okCount === results.length
+      (okCount === results.length
         ? `已存入 ${okCount} 题 / ${okCount} questions saved`
-        : `成功 ${okCount} 题，失败 ${results.length - okCount} 题`,
+        : `成功 ${okCount} 题，失败 ${results.length - okCount} 题`) +
+        (skipped > 0 ? ` · ${skipped} 题需先填分數 / review` : ""),
     );
     setSaving(false);
     if (okCount > 0) await onSaved?.();
@@ -105,6 +112,7 @@ export function QuestionScan({
           <div key={i} className={`rounded border px-3 py-2 text-sm ${saved.has(i) ? "border-green-300 bg-green-50" : ""}`}>
             <span className="font-medium">{d.internal_title}</span>
             <span className="ml-2 text-muted-foreground">· {d.marks ?? "—"} marks</span>
+            {d.marks == null && <span className="ml-2 text-amber-600">· 需審查 / review</span>}
             {saved.has(i) && <span className="ml-2 text-green-600">✓</span>}
             <span className="ml-2 block truncate text-muted-foreground">{draftText(d)}</span>
           </div>

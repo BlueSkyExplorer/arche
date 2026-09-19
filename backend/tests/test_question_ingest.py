@@ -64,6 +64,47 @@ def test_detected_marks_are_recorded_as_declared_evidence() -> None:
     assert "(2 marks)" in q.declared_marks[0].raw_text
 
 
+def test_subpart_marks_are_declared_evidence_with_location() -> None:
+    drafts = ingest_question_text("Q1. 說說看。\n\n(a) 第一點。（2分）\n(b) 第二點。（3分）\n")
+    q = drafts[0]
+    locations = [m.location for m in q.declared_marks]
+    assert "(a)" in locations and "(b)" in locations
+    # The stem states no total, so the authoritative question mark is unknown.
+    assert q.marks is None
+    assert not q.needs_review
+
+
+def test_unmappable_body_marks_flag_needs_review() -> None:
+    drafts = ingest_question_text("1. 這題沒有明確分數結構。\n\n這是補充說明，需（2分）評分。\n")
+    q = drafts[0]
+    assert q.needs_review
+
+
+def test_table_marks_declared_at_subpart_location() -> None:
+    from io import BytesIO
+
+    from docx import Document as DocxDocument
+
+    from app.services.question_ingest import ingest_question_docx
+
+    doc = DocxDocument()
+    t = doc.add_table(rows=2, cols=5)
+    t.cell(0, 0).text = "Q1."
+    t.cell(0, 1).text = "(a)"
+    t.cell(0, 3).text = "答案一"
+    t.cell(0, 4).text = "(1分)"
+    t.cell(1, 1).text = "(b)"
+    t.cell(1, 3).text = "答案二"
+    t.cell(1, 4).text = "(2分)"
+    buf = BytesIO()
+    doc.save(buf)
+
+    drafts = ingest_question_docx(buf.getvalue())
+    q = drafts[0]
+    locations = [m.location for m in q.declared_marks]
+    assert locations == ["(a)", "(b)"]
+
+
 def test_internal_title_derived_from_first_line() -> None:
     drafts = ingest_question_text("1. Solve 2 + 2. (2 marks)\n")
     assert drafts[0].internal_title  # non-empty
