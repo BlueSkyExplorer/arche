@@ -2,9 +2,10 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.schemas.content import DocNode
+from app.services.marks import computed_marks
 
 QuestionContent = DocNode
 
@@ -16,7 +17,6 @@ class QuestionCreate(BaseModel):
     tags_json: list[str] = Field(default_factory=list)
     source_note: str | None = None
     content_json: DocNode
-    marks: Decimal = Field(ge=0)
     status: str = Field(default="draft", pattern="^(draft|ready|archived)$")
 
 
@@ -27,7 +27,6 @@ class QuestionPatch(BaseModel):
     tags_json: list[str] | None = None
     source_note: str | None = None
     content_json: DocNode | None = None
-    marks: Decimal | None = Field(default=None, ge=0)
     status: str | None = Field(default=None, pattern="^(draft|ready|archived)$")
 
 
@@ -42,10 +41,15 @@ class QuestionRead(BaseModel):
     tags_json: list[str]
     source_note: str | None
     content_json: DocNode
-    marks: Decimal
     status: str
     created_at: datetime
     updated_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def marks(self) -> Decimal:
+        """Computed from leaf marks in the content tree (single source of truth)."""
+        return computed_marks(self.content_json)
 
 
 class DeclaredMark(BaseModel):

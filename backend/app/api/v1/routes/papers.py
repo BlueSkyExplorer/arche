@@ -48,7 +48,6 @@ def detail(db: Session, paper: object) -> PaperDetail:
                         question_id=pq.id,
                         position=pq.position,
                         marks=computed_marks(DocNode.model_validate(pq.content_snapshot_json)),
-                        marks_override=pq.marks_override,
                     )
                     for pq, question in pairs
                 ],
@@ -68,9 +67,6 @@ def detail(db: Session, paper: object) -> PaperDetail:
                         "question": QuestionRead.model_validate(question).model_copy(
                             update={
                                 "content_json": DocNode.model_validate(pq.content_snapshot_json),
-                                "marks": computed_marks(
-                                    DocNode.model_validate(pq.content_snapshot_json)
-                                ),
                             }
                         ),
                     }

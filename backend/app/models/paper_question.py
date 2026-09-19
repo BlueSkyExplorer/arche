@@ -1,8 +1,7 @@
-from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import ForeignKey, Integer, Numeric, UniqueConstraint
+from sqlalchemy import ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +23,5 @@ class PaperQuestion(Base):
     )
     question_id: Mapped[UUID] = mapped_column(ForeignKey("questions.id"), index=True)
     position: Mapped[int] = mapped_column(Integer)
-    marks_override: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
     settings_json: Mapped[dict[str, Any]] = mapped_column(JSONB)
     content_snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSONB)

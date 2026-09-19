@@ -1,8 +1,7 @@
-from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import ForeignKey, Numeric, String, Text
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,5 +19,4 @@ class Question(TimestampMixin, Base):
     tags_json: Mapped[list[str]] = mapped_column(JSONB)
     source_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_json: Mapped[dict[str, Any]] = mapped_column(JSONB)
-    marks: Mapped[Decimal] = mapped_column(Numeric(8, 2))
     status: Mapped[str] = mapped_column(String(30))

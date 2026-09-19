@@ -1,5 +1,4 @@
 from collections.abc import Generator
-from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -26,7 +25,6 @@ def test_question_and_template_are_isolated_via_api(db_session: Session) -> None
         tags_json=[],
         source_note=None,
         content_json={"type": "doc", "content": []},
-        marks=Decimal("2"),
         status="ready",
     )
     template = TemplateProfile(

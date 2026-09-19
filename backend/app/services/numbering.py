@@ -27,7 +27,6 @@ class QuestionForNumbering:
     question_id: UUID | str
     position: int
     marks: Decimal
-    marks_override: Decimal | None = None
     sub_question_count: int = 0
 
 
@@ -43,11 +42,6 @@ class NumberedQuestion:
     ordinal: int
     label: str
     sub_question_labels: tuple[str, ...]
-
-    @property
-    def effective_marks(self) -> Decimal:
-        override = self.question.marks_override
-        return override if override is not None else self.question.marks
 
 
 def _letters(value: int) -> str:
@@ -142,9 +136,9 @@ def number_questions(
 
 
 def total_marks(questions: Sequence[QuestionForNumbering | NumberedQuestion]) -> Decimal:
-    """Return effective marks, with each paper-question override taking precedence."""
+    """Return the sum of question marks."""
     total = Decimal(0)
     for item in questions:
         question = item.question if isinstance(item, NumberedQuestion) else item
-        total += question.marks_override if question.marks_override is not None else question.marks
+        total += question.marks
     return total

@@ -135,19 +135,35 @@ describe("buildDraftPayload", () => {
     expect(payload.level).toBe("Form 2");
     expect(payload.tags).toEqual(["algebra"]);
     expect(payload.sourceNote).toBeUndefined();
-    expect(payload.marks).toBe(2);
+    expect(payload.content.marks).toBe(2);
     expect(payload.status).toBe("draft");
     // content should be normalized (same structure here)
     expect(payload.content.type).toBe("doc");
   });
 
-  it("uses the explicitly provided numeric marks", () => {
+  it("uses the explicitly provided numeric marks as the standalone doc leaf", () => {
     const payload = buildDraftPayload(
       stubDraft,
       { subject: "Math", level: "F2" },
       5,
     );
-    expect(payload.marks).toBe(5);
+    expect(payload.content.marks).toBe(5);
+  });
+
+  it("leaves root marks absent for multipart drafts", () => {
+    const multipart: QuestionContent = {
+      type: "doc",
+      content: [
+        { type: "subQuestion", attrs: { label: "(a)", marks: 1 }, content: [{ type: "paragraph", content: [{ type: "text", text: "a" }] }] },
+        { type: "subQuestion", attrs: { label: "(b)", marks: 2 }, content: [{ type: "paragraph", content: [{ type: "text", text: "b" }] }] },
+      ],
+    };
+    const payload = buildDraftPayload(
+      { ...stubDraft, content_json: multipart },
+      { subject: "Math", level: "F2" },
+      9,
+    );
+    expect(payload.content.marks).toBeUndefined();
   });
 
   it("preserves source_note when present", () => {
