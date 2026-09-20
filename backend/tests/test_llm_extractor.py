@@ -370,3 +370,128 @@ def test_both_extractors_share_contract() -> None:
     for doc in (rule_doc, llm_doc):
         assert doc.sections[0].questions[0].own_marks == Decimal("2")
         assert validate_exam_document(doc).computed_total == Decimal("2")
+
+
+# --- hybrid extraction: deterministic labels + dedup -----------------------
+
+
+def test_deterministic_label_fills_none() -> None:
+    # The LLM returned label=None; the deterministic numbering detector supplies it.
+    blocks = _lines(["1. Explain (2 marks)"])
+    result = SemanticExtractionResult(
+        nodes=[_n("q1", label=None, blocks=["b0000"])],
+        sections=[SemanticSectionDTO(node_ids=["q1"])],
+    )
+    doc = _extract(blocks, result)
+    assert doc.sections[0].questions[0].label == "1."
+
+
+def test_deterministic_label_overrides_llm() -> None:
+    # The LLM cannot null out or rename a label the detector already found.
+    blocks = _lines(["1. Explain (2 marks)"])
+    result = SemanticExtractionResult(
+        nodes=[_n("q1", label="WRONG", blocks=["b0000"])],
+        sections=[SemanticSectionDTO(node_ids=["q1"])],
+    )
+    doc = _extract(blocks, result)
+    assert doc.sections[0].questions[0].label == "1."
+
+
+def test_llm_label_used_when_no_deterministic_numbering() -> None:
+    # For genuinely unnumbered blocks, the LLM's label is the only source.
+    blocks = _lines(["This question has no number. (2 marks)"])
+    result = SemanticExtractionResult(
+        nodes=[_n("q1", label="Unnumbered", blocks=["b0000"])],
+        sections=[SemanticSectionDTO(node_ids=["q1"])],
+    )
+    doc = _extract(blocks, result)
+    assert doc.sections[0].questions[0].label == "Unnumbered"
+
+
+def test_duplicate_top_level_nodes_deduped_and_pruned() -> None:
+    # Regression for the real OpenRouter bug: the LLM emitted (a) and (b) both as
+    # children of Q1 AND as extra top-level duplicates. Dedup must drop the
+    # duplicate ownership and prune the emptied nodes -> clean tree, no double
+    # marks, Ready (needs_review=False).
+    blocks = _lines([
+        "1. State one function of the cell membrane. (5 marks)",
+        "(a) Define diffusion. (2 marks)",
+        "(b) Define osmosis. (3 marks)",
+    ])
+    result = SemanticExtractionResult(
+        nodes=[
+            _n("q1", label=None, blocks=["b0000"]),
+            _n("q1a", "q1", label=None, blocks=["b0001"]),
+            _n("q1b", "q1", label=None, blocks=["b0002"]),
+            _n("dup-a", label=None, blocks=["b0001"]),  # duplicate top-level
+            _n("dup-b", label=None, blocks=["b0002"]),  # duplicate top-level
+        ],
+        sections=[SemanticSectionDTO(node_ids=["q1"])],
+    )
+    doc = _extract(blocks, result)
+
+    assert len(doc.sections) == 1
+    q = doc.sections[0].questions[0]
+    assert q.label == "1."
+    assert [c.label for c in q.children] == ["(a)", "(b)"]
+    assert q.own_marks is None
+    assert [m.value for m in q.declared_marks] == [Decimal("5")]
+    assert [c.own_marks for c in q.children] == [Decimal("2"), Decimal("3")]
+    # no duplicate blocks survived
+    assert any(w["code"] == "duplicate_block_assignment" for w in doc.meta["extraction_warnings"])
+
+    report = validate_exam_document(doc)
+    assert report.needs_review is False
+    assert report.computed_total == Decimal("5")
+
+
+def test_duplicate_block_content_not_double_counted() -> None:
+    # A block claimed by two nodes ends up in exactly one node's content.
+    blocks = _lines(["1. shared (1 mark)", "2. other (1 mark)"])
+    result = SemanticExtractionResult(
+        nodes=[
+            _n("q1", label="1.", blocks=["b0000"]),
+            _n("q2", label="2.", blocks=["b0000", "b0001"]),  # re-claims b0000
+        ],
+        sections=[SemanticSectionDTO(node_ids=["q1", "q2"])],
+    )
+    doc = _extract(blocks, result)
+    q1, q2 = doc.sections[0].questions
+    assert [c.text for c in q1.content] == ["1. shared (1 mark)"]
+    # q2 keeps b0001 but b0000 was deduped away
+    assert [c.text for c in q2.content] == ["2. other (1 mark)"]
+    assert validate_exam_document(doc).computed_total == Decimal("2")
+
+
+def test_parent_overclaim_child_wins() -> None:
+    # The LLM listed the child's block in BOTH the parent and the child. The
+    # deepest (child) node must own it; the parent keeps only its own stem.
+    blocks = _lines([
+        "1. State one function of the cell membrane. (1 mark)",
+        "(a) Define diffusion. (1 mark)",
+    ])
+    result = SemanticExtractionResult(
+        nodes=[
+            _n("q1", label=None, blocks=["b0000", "b0001"]),  # parent over-claims
+            _n("q1a", "q1", label=None, blocks=["b0001"]),    # child correct owner
+        ],
+        sections=[SemanticSectionDTO(node_ids=["q1"])],
+    )
+    doc = _extract(blocks, result)
+    q = doc.sections[0].questions[0]
+    assert q.label == "1."
+    assert len(q.children) == 1
+    assert q.children[0].label == "(a)"
+    assert [c.text for c in q.content] == ["1. State one function of the cell membrane. (1 mark)"]
+    assert [m.value for m in q.declared_marks] == [Decimal("1")]
+    assert q.children[0].own_marks == Decimal("1")
+    assert validate_exam_document(doc).needs_review is False
+
+
+def test_prompt_includes_detected_labels() -> None:
+    blocks = _lines(["1. Explain (2 marks)", "plain continuation"])
+    messages = build_messages(_parsed(blocks))
+    user_content = messages[1]["content"]
+    assert '"detected_label": "1."' in user_content
+    assert '"detected_label": null' in user_content
+

@@ -3,9 +3,16 @@
 The LLM only decides *structure* (sections, parent/child, labels, confidence).
 Everything else — content mapping, mark detection, evidence, and the final
 invariants — is deterministic and reuses the same helpers as the rule-based
-extractor. Block references are validated here: an unknown block id or a block
-assigned to two nodes is recorded as a warning and never silently dropped or
-fabricated.
+extractor.
+
+Block references are validated here. A block claimed by two nodes is
+deduplicated deterministically (the deepest — most specific — claiming node
+wins; later claims drop the block and are warned), so a block is never
+authoritatively assigned twice. Labels for numbered questions are reconciled
+deterministically: the numbering detector's token on a node's first owned text
+block is authoritative — the LLM cannot null out (or rename) a label the
+detector already found. The LLM's ``label`` is only a fallback for genuinely
+unnumbered / ambiguous nodes.
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ from app.exam.extraction.content import (
     to_content_block,
 )
 from app.exam.extraction.marks import detect_marks
+from app.exam.extraction.numbering import detect_numbering
 from app.exam.extraction.semantic import (
     SemanticExtractionResult,
     SemanticNodeDTO,
@@ -35,7 +43,6 @@ def assemble(
 ) -> ExamDocument:
     blocks: dict[str, DocumentBlock] = {b.id: b for b in parsed.blocks}
     node_by_id: dict[str, SemanticNodeDTO] = {d.id: d for d in result.nodes}
-    assigned: dict[str, str] = {}  # block_id -> node id that owns it
     assets: list[AssetReference] = []
 
     id_counts = Counter(d.id for d in result.nodes)
@@ -59,10 +66,49 @@ def assemble(
                 }
             )
 
+    # Node depth (number of ancestors) — used to resolve block-ownership ties in
+    # favour of the most specific (deepest) node, so a parent that over-claims a
+    # child's block never starves the child.
+    depth: dict[str, int] = {}
+    for dto in result.nodes:
+        d = 0
+        seen: set[str] = set()
+        cur = dto
+        while cur.parent_id is not None and cur.parent_id in node_by_id and cur.id not in seen:
+            seen.add(cur.id)
+            cur = node_by_id[cur.parent_id]
+            d += 1
+        depth[dto.id] = d
+
+    # Exclusive block ownership: a block belongs to exactly one node. When two
+    # nodes claim it, the deepest (most specific) wins; ties go to emission order.
+    owner: dict[str, str] = {}
+    for dto in result.nodes:
+        for bid in dto.content_block_ids:
+            if bid not in blocks:
+                continue
+            existing = owner.get(bid)
+            if existing is None or depth[dto.id] > depth[existing]:
+                owner[bid] = dto.id
+
+    # Deterministic numbering label per text block (authoritative for labels).
+    block_label: dict[str, str] = {}
+    for bid, block in blocks.items():
+        if block.kind == BlockKind.TEXT:
+            candidate = detect_numbering(block.text or "")
+            if candidate is not None:
+                block_label[bid] = candidate.token
+
     children: dict[str | None, list[SemanticNodeDTO]] = {}
     for dto in result.nodes:
         pid = dto.parent_id if dto.parent_id in node_by_id else None
         children.setdefault(pid, []).append(dto)
+
+    def ordered_blocks(dto: SemanticNodeDTO) -> list[str]:
+        return sorted(
+            dto.content_block_ids,
+            key=lambda i: blocks[i].order if i in blocks else 1 << 30,
+        )
 
     def build_content(
         dto: SemanticNodeDTO,
@@ -71,10 +117,7 @@ def assemble(
         marks: list = []
         first_block: DocumentBlock | None = None
         had_unknown = False
-        ordered = sorted(
-            dto.content_block_ids, key=lambda i: blocks[i].order if i in blocks else 1 << 30
-        )
-        for bid in ordered:
+        for bid in ordered_blocks(dto):
             if bid not in blocks:
                 had_unknown = True
                 warnings.append(
@@ -86,16 +129,17 @@ def assemble(
                     }
                 )
                 continue
-            if bid in assigned and assigned[bid] != dto.id:
+            if owner.get(bid) != dto.id:
+                # deterministic dedup: the block belongs to an earlier node
                 warnings.append(
                     {
                         "code": "duplicate_block_assignment",
-                        "message": f"block '{bid}' assigned to '{dto.id}' and '{assigned[bid]}'",
+                        "message": f"block '{bid}' assigned to '{dto.id}' and '{owner[bid]}'",
                         "source_text": None,
                         "page": None,
                     }
                 )
-            assigned[bid] = dto.id
+                continue
             block = blocks[bid]
             if first_block is None:
                 first_block = block
@@ -114,6 +158,12 @@ def assemble(
                 marks.extend(mark_evidence(m, block) for m in found_marks)
         return content, marks, first_block, had_unknown
 
+    def deterministic_label(dto: SemanticNodeDTO) -> str | None:
+        for bid in ordered_blocks(dto):
+            if bid in block_label and owner.get(bid) == dto.id:
+                return block_label[bid]
+        return None
+
     def assemble_node(dto: SemanticNodeDTO, visiting: set[str]) -> QuestionNode:
         if dto.id in visiting:
             warnings.append(
@@ -127,8 +177,9 @@ def assemble(
             return QuestionNode(label=dto.label)
         visiting.add(dto.id)
         content, marks, first_block, had_unknown = build_content(dto)
+        det_label = deterministic_label(dto)
         node = QuestionNode(
-            label=dto.label,
+            label=det_label if det_label is not None else dto.label,
             confidence=dto.confidence,
             content=content,
             source=evidence(first_block) if first_block is not None else SourceEvidence(),
@@ -200,5 +251,17 @@ def assemble(
                 questions=[assemble_node(d, set()) for d in children.get(None, [])]
             )
         )
+
+    # Prune nodes emptied by dedup (and drop empty untitled sections). A node
+    # survives if it has content, children, or a mark — a bare label alone does
+    # not keep an otherwise-empty duplicate alive.
+    def prune(node: QuestionNode) -> bool:
+        node.children = [c for c in node.children if prune(c)]
+        has_marks = node.own_marks is not None or bool(node.declared_marks)
+        return bool(node.content) or bool(node.children) or has_marks
+
+    for section in sections:
+        section.questions = [q for q in section.questions if prune(q)]
+    sections = [s for s in sections if s.questions or s.title is not None]
 
     return ExamDocument(sections=sections, assets=assets)
