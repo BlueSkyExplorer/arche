@@ -23,6 +23,7 @@ from app.exam.parsing import (
 
 FIXTURES = Path(__file__).parent / "fixtures"
 MATH_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 
 # --- fixtures -------------------------------------------------------------
@@ -116,6 +117,55 @@ def test_docx_table_rows() -> None:
     result = DocxParser().parse(_docx_bytes())
     table = next(b for b in result.blocks if b.kind == BlockKind.TABLE)
     assert table.rows == [["h1", "h2"], ["a", "b"]]
+
+
+def test_docx_multiline_cell_preserved() -> None:
+    doc = Document()
+    t = doc.add_table(rows=1, cols=1)
+    cell = t.cell(0, 0)
+    cell.text = "line1"
+    cell.add_paragraph("line2")
+    buf = BytesIO()
+    doc.save(buf)
+    result = DocxParser().parse(buf.getvalue())
+    assert result.blocks[0].rows == [["line1\nline2"]]
+
+
+def test_docx_nested_table_flattened() -> None:
+    doc = Document()
+    t = doc.add_table(rows=1, cols=1)
+    cell = t.cell(0, 0)
+    nested = parse_xml(
+        f'<w:tbl xmlns:w="{W_NS}">'
+        "<w:tr><w:tc><w:p><w:r><w:t>構 造</w:t></w:r></w:p></w:tc>"
+        "<w:tc><w:p><w:r><w:t>風媒花</w:t></w:r></w:p></w:tc></w:tr>"
+        "<w:tr><w:tc><w:p><w:r><w:t>花瓣</w:t></w:r></w:p></w:tc>"
+        "<w:tc><w:p><w:r><w:t>細小</w:t></w:r></w:p></w:tc></w:tr>"
+        "</w:tbl>"
+    )
+    cell._tc.append(nested)
+    buf = BytesIO()
+    doc.save(buf)
+    result = DocxParser().parse(buf.getvalue())
+    assert result.blocks[0].rows == [["構 造 | 風媒花\n花瓣 | 細小"]]
+
+
+def test_docx_drawing_cell_flagged_non_text() -> None:
+    doc = Document()
+    t = doc.add_table(rows=1, cols=1)
+    cell = t.cell(0, 0)
+    drawing = parse_xml(
+        f'<w:p xmlns:w="{W_NS}"><w:r><w:drawing>'
+        "<w:txbxContent><w:p><w:r><w:t>garbage textbox text</w:t></w:r></w:p></w:txbxContent>"
+        "</w:drawing></w:r></w:p>"
+    )
+    cell._tc.append(drawing)
+    buf = BytesIO()
+    doc.save(buf)
+    result = DocxParser().parse(buf.getvalue())
+    table = result.blocks[0]
+    assert table.rows == [[""]]  # no garbled text
+    assert table.meta["non_text_cells"] == {"0:0": "drawing"}
 
 
 def test_docx_image_extracts_asset() -> None:

@@ -63,16 +63,83 @@ def _image_parts(element: Any, doc: Document) -> list[tuple[str, bytes, str]]:
     return found
 
 
-def _table_rows(tbl_el: Any) -> list[list[str]]:
+def _non_text_kind(el: Any) -> str:
+    """Detect image/diagram/drawing/object content in an element; ``""`` if none.
+
+    Uses ``iter()`` (not ``find()``) because LibreOffice-generated drawings are
+    wrapped in ``mc:AlternateContent`` which ``find()`` does not traverse.
+    """
+    for node in el.iter():
+        if not isinstance(node.tag, str):
+            continue
+        local = node.tag.rsplit("}", 1)[-1]
+        if local == "blip":
+            return "image"
+        if local in ("txbxContent", "txbx"):
+            return "drawing"
+        if local == "pict":
+            return "image"
+        if local == "object":
+            return "object"
+    return ""
+
+
+def _cell_text(tc: Any) -> tuple[str, str]:
+    """Return ``(text, non_text_kind)`` for a table cell.
+
+    Preserves paragraph/line structure: multiple paragraphs are joined with
+    ``\\n`` and ``w:br``/``w:cr`` become ``\\n``. A nested table is flattened to
+    ``"cell | cell | …"`` rows joined with ``\\n``. Text inside a drawing/textbox
+    (a diagram) is NOT extracted — the cell is flagged ``drawing`` instead of
+    producing garbled text.
+    """
+    parts: list[str] = []
+    kind = ""
+    for child in tc:
+        if child.tag == qn("w:p"):
+            nk = _non_text_kind(child)
+            if nk:
+                kind = kind or nk
+                continue
+            buf: list[str] = []
+            for node in child.iter():
+                if node.tag in (qn("w:br"), qn("w:cr")):
+                    buf.append("\n")
+                elif node.tag == qn("w:tab"):
+                    buf.append("\t")
+                elif node.tag == qn("w:t"):
+                    buf.append(node.text or "")
+            text = "".join(buf).strip()
+            if text:
+                parts.append(text)
+        elif child.tag == qn("w:tbl"):
+            for tr in child.findall(qn("w:tr")):
+                row_cells: list[str] = []
+                for nested_tc in tr.findall(qn("w:tc")):
+                    nested_text, nested_kind = _cell_text(nested_tc)
+                    if nested_text:
+                        row_cells.append(nested_text)
+                    if nested_kind:
+                        kind = kind or nested_kind
+                if row_cells:
+                    parts.append(" | ".join(row_cells))
+    return "\n".join(parts), kind
+
+
+def _table_rows(tbl_el: Any) -> tuple[list[list[str]], dict[str, str]]:
+    """Return ``(rows, non_text_cells)``; ``non_text_cells`` maps ``"row:col"``
+    to a kind (``drawing``/``image``) for cells whose content is not text."""
     rows: list[list[str]] = []
-    for tr in tbl_el.findall(qn("w:tr")):
-        rows.append(
-            [
-                "".join(t.text or "" for t in tc.iter(qn("w:t")))
-                for tc in tr.findall(qn("w:tc"))
-            ]
-        )
-    return rows
+    non_text: dict[str, str] = {}
+    for r, tr in enumerate(tbl_el.findall(qn("w:tr"))):
+        row: list[str] = []
+        for c, tc in enumerate(tr.findall(qn("w:tc"))):
+            text, kind = _cell_text(tc)
+            row.append(text)
+            if kind:
+                non_text[f"{r}:{c}"] = kind
+        rows.append(row)
+    return rows, non_text
 
 
 class DocxParser:
@@ -195,15 +262,18 @@ class DocxParser:
                     order += 1
             elif child.tag == qn("w:tbl"):
                 table_index += 1
+                rows, non_text = _table_rows(child)
+                meta = {"non_text_cells": non_text} if non_text else {}
                 blocks.append(
                     DocumentBlock(
                         id=f"b{order:04d}",
                         kind=BlockKind.TABLE,
-                        rows=_table_rows(child),
+                        rows=rows,
                         order=order,
                         source=SourceReference(
                             file_name=source_name, element_id=f"tbl{table_index}"
                         ),
+                        meta=meta,
                     )
                 )
                 order += 1
