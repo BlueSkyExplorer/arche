@@ -85,8 +85,8 @@ Example: `Q3 -> (a)=2, (b)=unknown` yields `known_marks_total=2`,
 ## Consequences
 
 - New `app/exam/` subsystem: `ir.py` (contract), `validation.py` (deterministic
-  checks), `parsing/` (document parsing layer, ADR-0005). Later phases add
-  `extraction/` and `providers/`.
+  checks), `parsing/` (document parsing layer, ADR-0005), `extraction/`
+  (rule-based extractor, ADR-0006). Later phases add `providers/`.
 - The Exam IR re-affirms ADR-0002 (leaf-only marks; declared = evidence) and
   ADR-0003 (snapshot immutability; the materializer writes the snapshot from the
   IR, never a live source).
