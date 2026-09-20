@@ -27,7 +27,7 @@ def _upload(api_client: TestClient, data: bytes, filename: str = "biology.docx")
     )
 
 
-def _upload_answer_sheet(api_client: TestClient, data: bytes, filename: str = "ans.doc"):
+def _upload_answer_sheet(api_client: TestClient, data: bytes, filename: str = "ans.docx"):
     return api_client.post(
         "/api/v1/exam-imports",
         files={"file": (filename, data, "application/octet-stream")},

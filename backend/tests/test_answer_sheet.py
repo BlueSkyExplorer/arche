@@ -3,6 +3,9 @@
 from decimal import Decimal
 
 from app.exam.extraction.answer_sheet import (
+    AnswerImage,
+    AnswerParagraph,
+    AnswerTable,
     _build_tree,
     extract_answer_sheet,
     leading_labels,
@@ -94,10 +97,10 @@ def test_parse_question_table_forward_fill() -> None:
     q_label, leaves = parse_question_table(_table(rows, 0))
     assert q_label == "Q1."
     assert leaves == [
-        (["(a)"], ["睾丸"], Decimal("1"), False),
-        (["(b)"], ["X：46條"], Decimal("2"), False),
-        (["(c)", "(i)"], ["種子散播"], Decimal("1"), False),
-        (["(c)", "(ii)"], ["避免擠迫"], Decimal("1"), False),
+        (["(a)"], ["睾丸"], [AnswerParagraph("睾丸")], Decimal("1"), False),
+        (["(b)"], ["X：46條"], [AnswerParagraph("X：46條")], Decimal("2"), False),
+        (["(c)", "(i)"], ["種子散播"], [AnswerParagraph("種子散播")], Decimal("1"), False),
+        (["(c)", "(ii)"], ["避免擠迫"], [AnswerParagraph("避免擠迫")], Decimal("1"), False),
     ]
     tree = _build_tree(q_label, leaves)
     assert tree.label == "Q1."
@@ -112,7 +115,12 @@ def test_question_table_multiline_cell_preserved() -> None:
     rows = [["Q1.", "(a)", "", "花瓣 細小\n柱頭 呈羽狀\n雄蕊 懸垂", "(1分)x3"]]
     q_label, leaves = parse_question_table(_table(rows, 0))
     assert leaves[0][1] == ["花瓣 細小", "柱頭 呈羽狀", "雄蕊 懸垂"]
-    assert leaves[0][2] == Decimal("3")
+    assert leaves[0][2] == [
+        AnswerParagraph("花瓣 細小"),
+        AnswerParagraph("柱頭 呈羽狀"),
+        AnswerParagraph("雄蕊 懸垂"),
+    ]
+    assert leaves[0][3] == Decimal("3")
 
 
 def test_question_table_non_text_cell() -> None:
@@ -122,10 +130,39 @@ def test_question_table_non_text_cell() -> None:
     ]
     meta = {"non_text_cells": {"0:3": "drawing"}}
     q_label, leaves = parse_question_table(_table(rows, 0, meta))
-    assert leaves == [(["(c)"], [], Decimal("1"), True)]
+    assert leaves[0][0] == ["(c)"]
+    assert leaves[0][1] == []
+    assert leaves[0][3:] == (Decimal("1"), True)
     tree = _build_tree(q_label, leaves)
     assert tree.children[0].has_non_text_content is True
     assert tree.children[0].answer == []
+
+
+def test_question_table_preserves_structured_table_and_image_reference() -> None:
+    table = _table(
+        [["Q1.", "(a)", "", "構造 | 風媒花 | 蟲媒花", "(2分)"]],
+        0,
+        {
+            "non_text_cells": {"0:3": "image"},
+            "cell_content": {
+                "0:3": [
+                    {
+                        "kind": "table",
+                        "rows": [["構造", "風媒花", "蟲媒花"], ["花瓣", "細小", "鮮艷"]],
+                    }
+                ]
+            },
+            "cell_assets": {
+                "0:3": [{"local_id": "shape-0", "mime_type": "image/png"}]
+            },
+        },
+    )
+    q_label, leaves = parse_question_table(table)
+    tree = _build_tree(q_label, leaves)
+    content = tree.children[0].answer_content
+    assert isinstance(content[0], AnswerTable)
+    assert content[0].rows[0] == ["構造", "風媒花", "蟲媒花"]
+    assert content[1] == AnswerImage(local_id="shape-0", mime_type="image/png")
 
 
 # --- declared vs computed total ----------------------------------------------

@@ -66,7 +66,7 @@ def test_import_detects_chinese_marks_and_q_numbering() -> None:
     assert draft.profile.question_style_config_json.marks_display == "right"
 
 
-def test_import_reads_table_text_and_body_school_name() -> None:
+def test_import_reads_table_text_but_does_not_promote_body_school_candidate() -> None:
     from io import BytesIO
 
     from docx import Document as DocxDocument
@@ -80,7 +80,16 @@ def test_import_reads_table_text_and_body_school_name() -> None:
     buf = BytesIO()
     doc.save(buf)
     draft = import_template_docx(buf.getvalue())
-    assert draft.profile.school_name == "余振強紀念中學"
+    assert draft.profile.school_name == ""
+    assert draft.detected_fields["school_name"] == {
+        "value": None,
+        "candidate": "余振強紀念中學",
+        "confidence": 0.4,
+        "review_required": True,
+        "source": "body",
+    }
+    assert draft.evidence["body_school_candidate"][0]["text"] == "余振強紀念中學"
+    assert "school_name" not in draft.defaults_used
     assert draft.profile.numbering_config_json.question_style == "Q1."
     assert draft.profile.question_style_config_json.marks_format == "（{marks}分）"
 
@@ -127,12 +136,10 @@ def test_import_endpoint_accepts_doc(api_client) -> None:
     assert body["profile"]["page_config_json"]["size"] == "A4"
 
 
-def test_template_import_falls_back_to_ai_on_low_confidence(monkeypatch) -> None:
+def test_template_import_never_uses_ai_to_invent_low_confidence_values() -> None:
     from io import BytesIO
 
     from docx import Document as DocxDocument
-
-    from app.services import template_import
 
     doc = DocxDocument()
     # long paragraph (>40 chars) so school_name body fallback skips it;
@@ -143,19 +150,9 @@ def test_template_import_falls_back_to_ai_on_low_confidence(monkeypatch) -> None
     buf = BytesIO()
     doc.save(buf)
 
-    fake = {
-        "school_name": "武學路中學",
-        "question_style": "Q1.",
-        "marks_format": "（{marks}分）",
-    }
-
-    class FakeClient:
-        enabled = True
-
-    monkeypatch.setattr(template_import, "_suggest_template_ai", lambda s, c: fake)
-    monkeypatch.setattr(template_import, "AIClient", lambda settings: FakeClient())
-
-    draft = template_import.import_template_docx(buf.getvalue())
-    assert draft.profile.school_name == "武學路中學"
-    assert draft.profile.numbering_config_json.question_style == "Q1."
-    assert draft.profile.question_style_config_json.marks_format == "（{marks}分）"
+    draft = import_template_docx(buf.getvalue())
+    assert draft.profile.school_name == ""
+    assert draft.detected_fields["school_name"]["value"] is None
+    assert draft.detected_fields["school_name"]["review_required"] is True
+    assert draft.profile.numbering_config_json.question_style == "1."
+    assert draft.profile.question_style_config_json.marks_format == "({marks} marks)"

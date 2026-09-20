@@ -12,6 +12,7 @@ import pytest
 from docx import Document
 from docx.oxml import parse_xml
 
+from app.core.config import Settings
 from app.exam.parsing import (
     BlockKind,
     DocxParser,
@@ -20,6 +21,7 @@ from app.exam.parsing import (
     UnsupportedFormatError,
     parse_document,
 )
+from app.services.docx_shapes import _python_candidates
 
 FIXTURES = Path(__file__).parent / "fixtures"
 MATH_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
@@ -148,6 +150,10 @@ def test_docx_nested_table_flattened() -> None:
     doc.save(buf)
     result = DocxParser().parse(buf.getvalue())
     assert result.blocks[0].rows == [["構 造 | 風媒花\n花瓣 | 細小"]]
+    assert result.blocks[0].meta["cell_content"]["0:0"][-1] == {
+        "kind": "table",
+        "rows": [["構 造", "風媒花"], ["花瓣", "細小"]],
+    }
 
 
 def test_docx_drawing_cell_flagged_non_text() -> None:
@@ -177,6 +183,21 @@ def test_docx_image_extracts_asset() -> None:
     assert result.assets[image.asset.local_id][:4] == b"\x89PNG"
 
 
+def test_docx_table_image_maps_to_exact_cell_local_id() -> None:
+    doc = Document()
+    table = doc.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "text"
+    table.cell(0, 1).paragraphs[0].add_run().add_picture(str(FIXTURES / "tiny.png"))
+    output = BytesIO()
+    doc.save(output)
+    result = DocxParser().parse(output.getvalue())
+    block = next(item for item in result.blocks if item.kind == BlockKind.TABLE)
+    reference = block.meta["cell_assets"]["0:1"][0]
+    assert reference["local_id"] in result.assets
+    assert reference["mime_type"] == "image/png"
+    assert "0:0" not in block.meta["cell_assets"]
+
+
 def test_docx_equation() -> None:
     result = DocxParser().parse(_docx_bytes())
     equation = next(b for b in result.blocks if b.kind == BlockKind.EQUATION)
@@ -199,6 +220,19 @@ def test_docx_missing_page_and_bbox() -> None:
 def test_docx_malformed_input() -> None:
     with pytest.raises(ParseError):
         DocxParser().parse(b"this is not a zip file", source_name="x.docx")
+
+
+def test_explicit_libreoffice_python_precedes_wrapper_sibling(tmp_path: Path) -> None:
+    wrapper = tmp_path / "soffice-wrapper"
+    wrapper.write_text("#!/bin/sh\n", encoding="utf-8")
+    bundled_python = tmp_path / "libreoffice-python"
+    bundled_python.write_text("", encoding="utf-8")
+    settings = Settings(
+        LIBREOFFICE_BIN=str(wrapper),
+        LIBREOFFICE_PYTHON_BIN=str(bundled_python),
+    )
+    candidates = _python_candidates(wrapper, settings)
+    assert candidates[0] == bundled_python
 
 
 # --- PDF ------------------------------------------------------------------
