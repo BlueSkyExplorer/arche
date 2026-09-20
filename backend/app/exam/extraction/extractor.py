@@ -14,10 +14,17 @@ and fallback that the LLM extractor (ticket 04) shares the contract with.
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
-from app.exam.extraction.marks import MarkCandidate, detect_marks
+from app.exam.extraction.content import (
+    AMBIGUOUS_CONFIDENCE,
+    MARK_ONLY,
+    attach_marks,
+    evidence,
+    mark_evidence,
+    to_content_block,
+)
+from app.exam.extraction.marks import detect_marks
 from app.exam.extraction.numbering import (
     NumberingCandidate,
     NumberingPattern,
@@ -30,26 +37,8 @@ from app.exam.ir import (
     ExamDocument,
     QuestionNode,
     Section,
-    SourceEvidence,
 )
 from app.exam.parsing.blocks import BlockKind, DocumentBlock, ParseResult
-
-# Below validation's LOW_CONFIDENCE_THRESHOLD (0.5): an ambiguous placement is
-# surfaced as "low confidence -> needs_review" rather than silently accepted.
-AMBIGUOUS_CONFIDENCE = 0.4
-
-# A block that is *only* a mark token (no other text) — e.g. "(3 marks)" on its
-# own line. It is recorded as mark evidence, not as question content.
-_MARK_ONLY = re.compile(
-    r"^\s*(?:"
-    r"\(\s*\d+(?:\.\d+)?\s*marks?\s*\)"
-    r"|\[\s*\d+(?:\.\d+)?\s*marks?\s*\]"
-    r"|\d+(?:\.\d+)?\s*marks?"
-    r"|[（(]\s*\d+(?:\.\d+)?\s*分\s*[）)]"
-    r"|\d+(?:\.\d+)?\s*分"
-    r")\s*$",
-    re.IGNORECASE,
-)
 
 
 def _canonical_rank(system: str, prefix: str, suffix: str) -> int:
@@ -66,67 +55,6 @@ def _canonical_rank(system: str, prefix: str, suffix: str) -> int:
     if system in ("roman_lower", "roman_upper"):
         return 2
     return 0
-
-
-def _evidence(block: DocumentBlock) -> SourceEvidence:
-    return SourceEvidence(
-        page=block.page,
-        block_id=block.id,
-        bbox=block.bbox,
-        source_text=block.text or "",
-        confidence=block.confidence if block.confidence is not None else 1.0,
-    )
-
-
-def _to_content_block(block: DocumentBlock) -> ContentBlock | None:
-    ev = _evidence(block)
-    if block.kind == BlockKind.IMAGE:
-        return ContentBlock(kind="image", asset=block.asset, source=ev)
-    if block.kind == BlockKind.TABLE:
-        return ContentBlock(kind="table", rows=block.rows, source=ev)
-    if block.kind == BlockKind.EQUATION:
-        return ContentBlock(kind="equation", text=block.text, source=ev)
-    if block.kind == BlockKind.HEADING:
-        return ContentBlock(
-            kind="heading", text=block.text, heading_level=block.meta.get("level"), source=ev
-        )
-    # TEXT and CAPTION both become paragraphs; the caption styling is lost in the
-    # semantic IR but the text + source evidence are preserved.
-    return ContentBlock(kind="paragraph", text=block.text, source=ev)
-
-
-def _mark_evidence(mark: MarkCandidate, block: DocumentBlock) -> DeclaredMarkEvidence:
-    ev = _evidence(block)
-    return DeclaredMarkEvidence(
-        value=mark.value,
-        raw_text=mark.raw_text,
-        source=SourceEvidence(
-            page=ev.page, block_id=ev.block_id, bbox=ev.bbox, source_text=mark.raw_text
-        ),
-    )
-
-
-def _attach_marks(
-    node: QuestionNode, evidence: list[DeclaredMarkEvidence], warnings: list[dict[str, Any]]
-) -> None:
-    if not evidence:
-        return  # leaf keeps own_marks=None (unknown) — validation flags it
-    node.declared_marks = evidence
-    if node.children:
-        node.own_marks = None  # non-leaf: the stated total is subtotal evidence only
-    elif len(evidence) == 1:
-        node.own_marks = evidence[0].value
-    else:
-        node.own_marks = None  # multiple candidates on one leaf -> ambiguous
-        node.confidence = AMBIGUOUS_CONFIDENCE
-        warnings.append(
-            {
-                "code": "ambiguous_marks",
-                "message": f"leaf '{node.label}' has {len(evidence)} mark candidates",
-                "source_text": "; ".join(e.raw_text for e in evidence),
-                "page": None,
-            }
-        )
 
 
 class RuleBasedExamExtractor:
@@ -162,7 +90,7 @@ class RuleBasedExamExtractor:
             if block.kind == BlockKind.HEADING:
                 if section.questions or section.title is not None:
                     sections.append(section)
-                section = Section(title=block.text, source=_evidence(block))
+                section = Section(title=block.text, source=evidence(block))
                 stack = []
                 current = None
                 last_value = {}
@@ -189,24 +117,24 @@ class RuleBasedExamExtractor:
                 stem = text[candidate.end :].strip()
                 if stem:
                     node.content.append(
-                        ContentBlock(kind="paragraph", text=stem, source=_evidence(block))
+                        ContentBlock(kind="paragraph", text=stem, source=evidence(block))
                     )
                     marks = detect_marks(stem)
                     if marks:
                         node_marks.setdefault(id(node), []).extend(
-                            _mark_evidence(m, block) for m in marks
+                            mark_evidence(m, block) for m in marks
                         )
                 continue
 
             # content block (image / table / equation / caption / plain text)
-            cb = _to_content_block(block)
+            cb = to_content_block(block)
             if cb is None:
                 continue
             marks = detect_marks(text)
-            if block.kind == BlockKind.TEXT and _MARK_ONLY.match(text) and marks:
+            if block.kind == BlockKind.TEXT and MARK_ONLY.match(text) and marks:
                 if current is not None:
                     node_marks.setdefault(id(current), []).extend(
-                        _mark_evidence(m, block) for m in marks
+                        mark_evidence(m, block) for m in marks
                     )
                 else:
                     add_warning("mark_before_question", "mark token before any question", block)
@@ -217,7 +145,7 @@ class RuleBasedExamExtractor:
                     referenced_assets.append(cb.asset)
                 if marks:
                     node_marks.setdefault(id(current), []).extend(
-                        _mark_evidence(m, block) for m in marks
+                        mark_evidence(m, block) for m in marks
                     )
             else:
                 preamble.append(text)
@@ -226,7 +154,7 @@ class RuleBasedExamExtractor:
         sections.append(section)
 
         for node in all_nodes:
-            _attach_marks(node, node_marks.get(id(node), []), warnings)
+            attach_marks(node, node_marks.get(id(node), []), warnings)
 
         meta: dict[str, Any] = {
             "extractor": self.name,
@@ -273,7 +201,7 @@ class RuleBasedExamExtractor:
             stack.pop()
         parent = stack[-1][1] if stack else None
 
-        node = QuestionNode(label=candidate.token, source=_evidence(block))
+        node = QuestionNode(label=candidate.token, source=evidence(block))
         if parent is not None:
             parent.children.append(node)
         else:
