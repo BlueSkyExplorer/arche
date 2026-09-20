@@ -95,7 +95,9 @@ class AssetReference(StrictIRModel):
 class ContentBlock(StrictIRModel):
     """One block of question content: text, an image, a table, an equation, etc."""
 
-    kind: Literal["paragraph", "heading", "image", "table", "equation", "answer_space", "list"]
+    kind: Literal[
+        "paragraph", "heading", "image", "table", "equation", "answer_space", "list", "caption"
+    ]
     text: str | None = None
     heading_level: int | None = Field(default=None, ge=1, le=6)
     asset: AssetReference | None = None

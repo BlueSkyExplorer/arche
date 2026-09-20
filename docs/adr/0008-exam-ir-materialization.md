@@ -49,16 +49,19 @@ knowledge of which extractor produced the document.
   section title carried in `source_note`.
 - *`answer_space`.* No dimension info in the IR; falls back to an empty paragraph.
 
-**C — review/debug metadata, defer (additive migration if ever needed)**
+**C — review/debug metadata (preserved on the draft; DB persistence deferred)**
 
-- *Source evidence* (page / block id / bbox / source text / confidence) is not
-  persisted on `Question` or `content_json`. `DeclaredMarkEvidence.source` is
-  dropped (the draft `DeclaredMark` has no provenance field).
-- *Extraction warnings / confidence* are surfaced on the draft (`needs_review`,
-  `validation_issues`) but not persisted to `Question`.
+- *Source evidence* (block id / page / bbox / source text / confidence) is now
+  carried on `QuestionIngestDraft.source_evidence` (per-block, content order),
+  and *extraction metadata* (extractor/provider/model/schema/warnings) on
+  `QuestionIngestDraft.extraction_meta` — so the materializer no longer discards
+  it. Persisting it on `Question` is a deferred additive migration (decision B:
+  a durable import/extraction record), not required for question domain truth.
+- `DeclaredMarkEvidence.source` (provenance) is still dropped — the draft
+  `DeclaredMark` has no provenance field. A later additive field covers it.
 
 None of these require a DB change now; each C item would be a later additive
-migration.
+migration with explicit backfill semantics.
 
 ## Marks invariant
 
@@ -67,6 +70,34 @@ through: a known leaf → its value; an unknown leaf → `None` (the draft and t
 content tree both carry `None`, never 0); a non-leaf → `None`, with the total
 computed from leaf marks by the existing `computed_marks`. The declared subtotal
 is carried only as `declared_marks` evidence.
+
+## Review-state mapping
+
+`ValidationIssue.severity` already distinguishes the three classes, and the
+materializer maps them onto the draft without re-deriving validator semantics:
+
+- `blocking` → `needs_review=True`, issue string prefixed `blocking: …` (the
+  caller must not auto-persist as clean).
+- `warning` → `needs_review=True`, issue string prefixed `warning: …`.
+- `info` → `needs_review=False`, issue string prefixed `info: …`.
+
+Unresolved image assets are emitted as `blocking` (a correctness-critical missing
+asset is never silently dropped — it blocks clean auto-persist).
+
+## Error policy
+
+The materializer is not catch-all-and-continue: an unsupported `ContentBlock`
+kind degrades to a paragraph (text preserved, loss documented); a missing image
+asset is flagged `blocking` + `needs_review`; an invalid hierarchy (non-leaf with
+`own_marks`) is rejected at IR construction, before materialization. Correctness
+issues fail explicitly; reviewable ambiguity is preserved and marked.
+
+## Round-trip detection
+
+A test-only `_assert_round_trip(document, drafts)` helper compares the
+materialized subtree signature (labels + `own_marks` in preorder) against the
+Exam IR, plus content order and asset identity, so the materializer cannot
+silently drop labels, hierarchy, unknown marks, or asset references.
 
 ## Consequences
 

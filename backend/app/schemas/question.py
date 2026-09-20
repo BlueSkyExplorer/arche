@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
@@ -80,3 +81,10 @@ class QuestionIngestDraft(BaseModel):
     needs_review: bool = False
     validation_issues: list[str] = Field(default_factory=list)
     status: str = Field(default="draft", pattern="^(draft|ready|archived)$")
+    # Durable provenance preserved by the materializer for the review UI (ticket
+    # 06) and future source-evidence persistence. Never authoritative domain
+    # truth. ``extraction_meta`` = extractor/provider/model/schema/warnings;
+    # ``source_evidence`` = per-block {block_id, page, bbox, source_text,
+    # confidence, kind} in content order.
+    extraction_meta: dict[str, Any] | None = None
+    source_evidence: list[dict[str, Any]] = Field(default_factory=list)

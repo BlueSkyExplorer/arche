@@ -58,8 +58,9 @@ def to_content_block(block: DocumentBlock) -> ContentBlock | None:
         return ContentBlock(
             kind="heading", text=block.text, heading_level=block.meta.get("level"), source=ev
         )
-    # TEXT and CAPTION both become paragraphs; the caption styling is lost in the
-    # semantic IR but the text + source evidence are preserved.
+    if block.kind == BlockKind.CAPTION:
+        return ContentBlock(kind="caption", text=block.text, source=ev)
+    # TEXT becomes a paragraph.
     return ContentBlock(kind="paragraph", text=block.text, source=ev)
 
 

@@ -18,7 +18,7 @@ from collections.abc import Callable
 from typing import Literal, cast
 from uuid import UUID
 
-from app.exam.ir import ContentBlock, ExamDocument, QuestionNode
+from app.exam.ir import BBox, ContentBlock, ExamDocument, QuestionNode
 from app.exam.validation import validate_exam_document
 from app.schemas.content import (
     BlockNode,
@@ -144,6 +144,42 @@ def _collect_declared(node: QuestionNode, location: str = "") -> list[DeclaredMa
     return out
 
 
+def _bbox_list(bbox: BBox | None) -> list[float] | None:
+    return [bbox.x0, bbox.y0, bbox.x1, bbox.y1] if bbox is not None else None
+
+
+def _collect_evidence(node: QuestionNode, out: list[dict]) -> None:
+    """Flatten per-block source evidence in content order (label first)."""
+    label = node.source
+    if label.block_id is not None:
+        out.append(
+            {
+                "role": "label",
+                "block_id": label.block_id,
+                "page": label.page,
+                "bbox": _bbox_list(label.bbox),
+                "source_text": label.source_text,
+                "confidence": label.confidence,
+                "kind": "label",
+            }
+        )
+    for block in node.content:
+        src = block.source
+        out.append(
+            {
+                "role": "content",
+                "block_id": src.block_id,
+                "page": src.page,
+                "bbox": _bbox_list(src.bbox),
+                "source_text": src.source_text,
+                "confidence": src.confidence,
+                "kind": block.kind,
+            }
+        )
+    for child in node.children:
+        _collect_evidence(child, out)
+
+
 def materialize_exam_document(
     document: ExamDocument,
     *,
@@ -174,15 +210,18 @@ def materialize_exam_document(
                 if issue.location == question_path
                 or issue.location.startswith(question_path + "/")
             ]
-            validation_issues = [f"{i.code}: {i.message}" for i in own_issues]
+            validation_issues = [f"{i.severity}: {i.code}: {i.message}" for i in own_issues]
             if unresolved:
                 validation_issues.append(
-                    f"unresolved_image_asset: {', '.join(sorted(unresolved))}"
+                    f"blocking: unresolved_image_asset: {', '.join(sorted(unresolved))}"
                 )
             needs_review = (
                 any(i.severity in ("warning", "blocking") for i in own_issues)
                 or bool(unresolved)
             )
+
+            evidence: list[dict] = []
+            _collect_evidence(node, evidence)
 
             drafts.append(
                 QuestionIngestDraft(
@@ -197,6 +236,8 @@ def materialize_exam_document(
                     needs_review=needs_review,
                     validation_issues=validation_issues,
                     status="draft",
+                    extraction_meta=document.meta or None,
+                    source_evidence=evidence,
                 )
             )
     return drafts

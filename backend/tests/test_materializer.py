@@ -14,6 +14,7 @@ from app.exam.ir import (
 )
 from app.exam.materialization import materialize_exam_document
 from app.exam.parsing.blocks import BlockKind, DocumentBlock, ParseResult, SourceReference
+from app.exam.validation import validate_exam_document
 from app.schemas.content import ImageNode, SubQuestionNode, TableNode
 
 
@@ -21,13 +22,14 @@ def _para(text: str) -> ContentBlock:
     return ContentBlock(kind="paragraph", text=text)
 
 
-def _q(label=None, own_marks=None, content=(), children=(), declared=()):
+def _q(label=None, own_marks=None, content=(), children=(), declared=(), confidence=1.0):
     return QuestionNode(
         label=label,
         own_marks=own_marks,
         content=list(content),
         children=list(children),
         declared_marks=list(declared),
+        confidence=confidence,
     )
 
 
@@ -208,3 +210,172 @@ def test_end_to_end_extractor_to_materializer() -> None:
     assert [s.attrs.marks for s in subs] == [Decimal("2"), Decimal("3")]
     # all declared evidence: the stem subtotal plus the leaf marks
     assert [m.value for m in draft.declared_marks] == [Decimal("5"), Decimal("2"), Decimal("3")]
+
+
+# --- round-trip helper + integration cases A-G -----------------------------
+
+
+def _node_sig(node: QuestionNode) -> list[tuple]:
+    sig = [(node.label, node.own_marks)]
+    for child in node.children:
+        sig += _node_sig(child)
+    return sig
+
+
+def _sub_sig(sub: SubQuestionNode) -> list[tuple]:
+    sig = [(sub.attrs.label, sub.attrs.marks)]
+    for block in sub.content:
+        if isinstance(block, SubQuestionNode):
+            sig += _sub_sig(block)
+    return sig
+
+
+def _doc_sig(doc_node) -> list[tuple]:
+    sig: list[tuple] = []
+    for block in doc_node.content:
+        if isinstance(block, SubQuestionNode):
+            sig += _sub_sig(block)
+    return sig
+
+
+def _assert_round_trip(document: ExamDocument, drafts) -> None:
+    questions = [q for s in document.sections for q in s.questions]
+    assert len(drafts) == len(questions)
+    for index, (node, draft) in enumerate(zip(questions, drafts, strict=True), 1):
+        assert draft.marks == node.own_marks
+        assert draft.content_json.marks == node.own_marks
+        # the top-level label lives in internal_title; the subtree is nested
+        assert _doc_sig(draft.content_json) == _node_sig(node)[1:]
+        assert draft.internal_title == (node.label or f"Question {index}")
+
+
+def test_case_a_multipart() -> None:
+    doc = _doc(
+        [
+            _q(
+                "Q1",
+                children=[
+                    _q("(a)", Decimal("2"), [_para("x")]),
+                    _q("(b)", Decimal("3"), [_para("y")]),
+                ],
+            )
+        ]
+    )
+    drafts = materialize_exam_document(doc)
+    _assert_round_trip(doc, drafts)
+    subs = [b for b in drafts[0].content_json.content if isinstance(b, SubQuestionNode)]
+    assert [s.attrs.marks for s in subs] == [Decimal("2"), Decimal("3")]
+
+
+def test_case_b_mixed_known_unknown() -> None:
+    doc = _doc(
+        [
+            _q(
+                "Q3",
+                children=[
+                    _q("(a)", Decimal("2"), [_para("x")]),
+                    _q(
+                        "(b)",
+                        children=[
+                            _q("(i)", Decimal("1"), [_para("y")]),
+                            _q("(ii)", None, [_para("z")]),
+                        ],
+                    ),
+                ],
+            )
+        ]
+    )
+    report = validate_exam_document(doc)
+    drafts = materialize_exam_document(doc)
+    _assert_round_trip(doc, drafts)
+
+    assert report.known_marks_total == Decimal("3")  # 2 + 1
+    assert report.marks_complete is False
+    assert report.computed_total is None
+    assert report.needs_review is True
+    assert drafts[0].needs_review is True
+    # ii stays NULL everywhere, never 0
+    b = next(
+        x
+        for x in drafts[0].content_json.content
+        if isinstance(x, SubQuestionNode) and x.attrs.label == "(b)"
+    )
+    ii = next(x for x in b.content if isinstance(x, SubQuestionNode) and x.attrs.label == "(ii)")
+    assert ii.attrs.marks is None
+
+
+def test_case_c_deep_hierarchy_not_flattened() -> None:
+    deepest = _q("(1)", Decimal("1"), [_para("x")])
+    mid = _q("(ii)", children=[deepest])
+    top_child = _q("(b)", children=[mid])
+    doc = _doc([_q("3.", children=[top_child])])
+    drafts = materialize_exam_document(doc)
+    _assert_round_trip(doc, drafts)
+    # the fourth level survives as a nested SubQuestionNode, not a flattened string
+    (b,) = [x for x in drafts[0].content_json.content if isinstance(x, SubQuestionNode)]
+    (ii,) = [x for x in b.content if isinstance(x, SubQuestionNode)]
+    (one,) = [x for x in ii.content if isinstance(x, SubQuestionNode)]
+    assert one.attrs.label == "(1)"
+
+
+def test_case_d_rich_content_order_and_asset() -> None:
+    asset = AssetReference(local_id="img-0", mime_type="image/png")
+    content = [
+        ContentBlock(kind="paragraph", text="Intro"),
+        ContentBlock(kind="image", asset=asset),
+        ContentBlock(kind="caption", text="Figure 1"),
+        ContentBlock(kind="table", rows=[["a", "b"]]),
+        ContentBlock(kind="equation", text="x = 1"),
+        ContentBlock(kind="paragraph", text="End"),
+    ]
+    doc = _doc([_q("1.", Decimal("2"), content=content)])
+    uid = uuid4()
+    draft = materialize_exam_document(doc, asset_id_for=_asset_id_for({"img-0": uid}))[0]
+    # order preserved: paragraph, image, caption(paragraph), table, equation(paragraph), paragraph
+    kinds = [b.type for b in draft.content_json.content]
+    assert kinds == ["paragraph", "image", "paragraph", "table", "paragraph", "paragraph"]
+    assert isinstance(draft.content_json.content[1], ImageNode)
+    assert draft.content_json.content[1].attrs.asset_id == uid
+    assert isinstance(draft.content_json.content[3], TableNode)
+
+
+def test_case_e_declared_subtotal_not_own_marks() -> None:
+    declared = [DeclaredMarkEvidence(value=Decimal("5"), raw_text="(5 marks)")]
+    doc = _doc(
+        [
+            _q(
+                "1.",
+                declared=declared,
+                children=[
+                    _q("(a)", Decimal("2"), [_para("x")]),
+                    _q("(b)", Decimal("3"), [_para("y")]),
+                ],
+            )
+        ]
+    )
+    draft = materialize_exam_document(doc)[0]
+    # children exist + own_marks=None + declared=5 => materialize must NOT set
+    # authoritative marks=5; the total is computed from descendants (2+3)
+    assert draft.marks is None
+    assert draft.content_json.marks is None
+    assert [m.value for m in draft.declared_marks] == [Decimal("5")]
+
+
+def test_case_g_needs_review_preserved() -> None:
+    # unknown mark + low confidence -> review state survives materialization
+    doc = _doc(
+        [
+            _q(
+                "1.",
+                own_marks=None,
+                confidence=0.3,
+                content=[_para("unclear")],
+            )
+        ]
+    )
+    draft = materialize_exam_document(doc)[0]
+    assert draft.needs_review is True
+    assert draft.marks is None
+    # severity is preserved in the validation issue strings
+    assert any(i.startswith("warning:") for i in draft.validation_issues)
+
