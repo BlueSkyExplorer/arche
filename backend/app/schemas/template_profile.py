@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveFloat
+from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, field_validator
 
 SemanticRole = Literal[
     "Normal",
@@ -66,6 +66,54 @@ class QuestionStyleConfig(BlockStyleConfig):
     default_answer_lines: int = Field(default=0, ge=0)
 
 
+_METADATA_PLACEHOLDERS = {
+    "school_name",
+    "academic_year",
+    "exam_name",
+    "level",
+    "subject",
+    "document_type",
+}
+
+
+class AnswerSheetLayoutConfig(StrictConfigModel):
+    metadata_lines: list[str] = Field(
+        default_factory=lambda: [
+            "{{school_name}}",
+            "{{academic_year}} {{exam_name}}",
+            "{{level}} {{subject}} ({{document_type}})",
+        ],
+        min_length=1,
+        max_length=8,
+    )
+    mcq_columns: Literal[1, 2, 3] = 2
+    mcq_borders: bool = True
+    mcq_question_width_mm: float = Field(default=14, gt=0, le=40)
+    mcq_answer_width_mm: float = Field(default=18, gt=0, le=50)
+    mcq_alignment: Literal["left", "center", "right"] = "center"
+    mcq_font_size_pt: float = Field(default=11, ge=6, le=24)
+    mcq_row_height_mm: float = Field(default=7, ge=3, le=20)
+    hierarchy_indent_mm: float = Field(default=7, ge=0, le=25)
+    show_parent_totals: bool = True
+    image_max_width_mm: float = Field(default=120, gt=0, le=180)
+    answer_table_borders: bool = True
+    answer_table_alignment: Literal["left", "center", "right"] = "left"
+    answer_table_font_size_pt: float = Field(default=10, ge=6, le=24)
+    repeat_table_header: bool = True
+
+    @field_validator("metadata_lines")
+    @classmethod
+    def validate_placeholders(cls, lines: list[str]) -> list[str]:
+        import re
+
+        for line in lines:
+            names = set(re.findall(r"{{\s*([a-z_]+)\s*}}", line))
+            unsupported = names - _METADATA_PLACEHOLDERS
+            if unsupported:
+                raise ValueError(f"unsupported metadata placeholder(s): {sorted(unsupported)}")
+        return lines
+
+
 class RoleStyleConfig(StrictConfigModel):
     latin_font: str | None = Field(default=None, min_length=1)
     east_asia_font: str | None = Field(default=None, min_length=1)
@@ -85,6 +133,9 @@ class TemplateProfileConfig(StrictConfigModel):
     numbering_config_json: NumberingConfig
     section_style_config_json: BlockStyleConfig
     question_style_config_json: QuestionStyleConfig
+    answer_sheet_layout_json: AnswerSheetLayoutConfig = Field(
+        default_factory=AnswerSheetLayoutConfig
+    )
     role_styles: dict[SemanticRole, RoleStyleConfig] = Field(default_factory=dict)
 
 
@@ -109,6 +160,20 @@ class TemplateProfileCreate(TemplateProfileConfig):
     is_active: bool = True
 
 
+class TemplateProfileImportDraft(TemplateProfileConfig):
+    """Unsaved import proposal; identity evidence may legitimately be absent.
+
+    Persisted ``TemplateProfileCreate`` remains strict.  Keeping this boundary
+    separate prevents low-confidence body text or a made-up placeholder from
+    masquerading as detected school metadata in the review form.
+    """
+
+    name: str = Field(min_length=1, max_length=255)
+    school_name: str = Field(default="", max_length=255)
+    logo_asset_id: UUID | None = None
+    is_active: bool = True
+
+
 class TemplateProfilePatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     school_name: str | None = Field(default=None, min_length=1, max_length=255)
@@ -120,4 +185,5 @@ class TemplateProfilePatch(BaseModel):
     numbering_config_json: NumberingConfig | None = None
     section_style_config_json: BlockStyleConfig | None = None
     question_style_config_json: QuestionStyleConfig | None = None
+    answer_sheet_layout_json: AnswerSheetLayoutConfig | None = None
     is_active: bool | None = None

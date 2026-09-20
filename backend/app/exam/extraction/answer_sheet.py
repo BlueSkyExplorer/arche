@@ -28,6 +28,34 @@ from app.exam.parsing.blocks import BlockKind, DocumentBlock, ParseResult
 # --- data model -------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class AnswerParagraph:
+    text: str
+    kind: str = field(default="paragraph", init=False)
+
+
+@dataclass(frozen=True)
+class AnswerTable:
+    rows: list[list[str]]
+    kind: str = field(default="table", init=False)
+
+
+@dataclass(frozen=True)
+class AnswerImage:
+    local_id: str
+    mime_type: str | None = None
+    kind: str = field(default="image", init=False)
+
+
+@dataclass(frozen=True)
+class UnsupportedAnswerContent:
+    reason: str
+    kind: str = field(default="unsupported", init=False)
+
+
+AnswerContent = AnswerParagraph | AnswerTable | AnswerImage | UnsupportedAnswerContent
+
+
 @dataclass
 class AnsNode:
     """One question / sub-part. Leaf holds the answer text + authoritative marks.
@@ -39,6 +67,7 @@ class AnsNode:
 
     label: str | None
     answer: list[str] = field(default_factory=list)
+    answer_content: list[AnswerContent] = field(default_factory=list)
     marks: Decimal | None = None
     children: list[AnsNode] = field(default_factory=list)
     has_non_text_content: bool = False
@@ -219,7 +248,9 @@ def parse_mcq(table: DocumentBlock) -> list[tuple[str, str]] | None:
 
 # --- table format (20260515) ------------------------------------------------
 
-Leaf = tuple[list[str], list[str], Decimal | None, bool]  # (path, lines, marks, non_text)
+Leaf = tuple[
+    list[str], list[str], list[AnswerContent], Decimal | None, bool
+]  # path, legacy lines, typed content, marks, non-text
 
 
 def _is_question_table(table: DocumentBlock) -> bool:
@@ -256,10 +287,31 @@ def parse_question_table(table: DocumentBlock) -> tuple[str, list[Leaf]] | None:
         path = [p for p in (cur_sub, cur_subsub) if p]
         lines = [ln.strip() for ln in content.split("\n")] if content else []
         lines = [ln for ln in lines if ln]
+        typed: list[AnswerContent] = []
+        for item in table.meta.get("cell_content", {}).get(f"{r_idx}:3", []):
+            if item.get("kind") == "table":
+                typed.append(
+                    AnswerTable(rows=[[str(cell) for cell in row] for row in item.get("rows", [])])
+                )
+            elif item.get("kind") == "paragraph" and item.get("text"):
+                for paragraph in str(item["text"]).split("\n"):
+                    if paragraph.strip():
+                        typed.append(AnswerParagraph(paragraph.strip()))
+        for asset in table.meta.get("cell_assets", {}).get(f"{r_idx}:3", []):
+            typed.append(
+                AnswerImage(
+                    local_id=str(asset["local_id"]),
+                    mime_type=asset.get("mime_type"),
+                )
+            )
         marks = parse_marks(marks_s)
         non_text = f"{r_idx}:3" in non_text_cells
-        if lines or marks is not None or non_text:
-            leaves.append((path, lines, marks, non_text))
+        if non_text and not any(isinstance(item, AnswerImage) for item in typed):
+            typed.append(UnsupportedAnswerContent(reason=non_text_cells[f"{r_idx}:3"]))
+        if not typed:
+            typed = [AnswerParagraph(line) for line in lines]
+        if lines or typed or marks is not None or non_text:
+            leaves.append((path, lines, typed, marks, non_text))
     if q_label is None:
         return None
     return q_label, leaves
@@ -267,7 +319,7 @@ def parse_question_table(table: DocumentBlock) -> tuple[str, list[Leaf]] | None:
 
 def _build_tree(q_label: str, leaves: list[Leaf]) -> AnsNode:
     root = AnsNode(label=q_label)
-    for path, lines, marks, non_text in leaves:
+    for path, lines, typed, marks, non_text in leaves:
         node = root
         for lbl in path:
             child = next((c for c in node.children if c.label == lbl), None)
@@ -276,6 +328,7 @@ def _build_tree(q_label: str, leaves: list[Leaf]) -> AnsNode:
                 node.children.append(child)
             node = child
         node.answer.extend(lines)
+        node.answer_content.extend(typed)
         if marks is not None:
             node.marks = marks
         if non_text:
@@ -294,18 +347,18 @@ def _text_to_tree(blocks: list[DocumentBlock]) -> list[AnsNode]:
             continue
         if block.kind != BlockKind.TEXT:
             if block.kind == BlockKind.TABLE and stack:
-                non_text = block.meta.get("non_text_cells", {})
-                for r_idx, r in enumerate(block.rows or []):
-                    cells: list[str] = []
-                    for c_idx, c in enumerate(r):
-                        if f"{r_idx}:{c_idx}" in non_text:
-                            cells.append("[圖]")
-                            stack[-1][1].has_non_text_content = True
-                        else:
-                            cells.append(c or "")
-                    stack[-1][1].answer.append(" | ".join(cells))
+                stack[-1][1].answer_content.append(AnswerTable(rows=block.rows or []))
+                if block.meta.get("non_text_cells"):
+                    stack[-1][1].has_non_text_content = True
             elif block.kind == BlockKind.IMAGE and stack:
                 stack[-1][1].has_non_text_content = True
+                if block.asset is not None:
+                    stack[-1][1].answer_content.append(
+                        AnswerImage(
+                            local_id=block.asset.local_id,
+                            mime_type=block.asset.mime_type,
+                        )
+                    )
             continue
         text = block.text or ""
         labels, rest = leading_labels(text)
@@ -313,7 +366,10 @@ def _text_to_tree(blocks: list[DocumentBlock]) -> list[AnsNode]:
             if stack:
                 node = stack[-1][1]
                 if rest:
-                    node.answer.append(strip_marks(rest))
+                    clean_rest = strip_marks(rest)
+                    if clean_rest:
+                        node.answer.append(clean_rest)
+                        node.answer_content.append(AnswerParagraph(clean_rest))
                 m = parse_marks(rest)
                 if m is not None:
                     node.marks = (node.marks or Decimal(0)) + m
@@ -328,6 +384,7 @@ def _text_to_tree(blocks: list[DocumentBlock]) -> list[AnsNode]:
             if idx == len(labels) - 1:
                 if clean:
                     node.answer.append(clean)
+                    node.answer_content.append(AnswerParagraph(clean))
                 if marks is not None:
                     node.marks = marks
             if stack:
@@ -392,7 +449,7 @@ def extract_answer_sheet(parsed: ParseResult) -> AnsSheet:
             # standalone non-text evidence not attached to any question node
             # (question-cell diagrams are already flagged on the nodes themselves)
             sec.standalone_non_text = any(
-                b.kind == BlockKind.IMAGE
+                (b.kind == BlockKind.IMAGE and not b.meta.get("parent_table"))
                 or (
                     b.kind == BlockKind.TABLE
                     and not _is_question_table(b)
@@ -403,12 +460,19 @@ def extract_answer_sheet(parsed: ParseResult) -> AnsSheet:
 
         sheet.sections.append(sec)
 
-    # raster-image asset references (for preview / persistence)
-    for b in parsed.blocks:
-        if b.kind == BlockKind.IMAGE and b.asset is not None:
-            sheet.asset_refs.append(
-                {"local_id": b.asset.local_id, "mime_type": b.asset.mime_type}
-            )
+    # Only references attached to answer nodes belong in the semantic sheet.
+    seen_assets: set[str] = set()
+    for section in sheet.sections:
+        stack = list(section.questions)
+        while stack:
+            node = stack.pop()
+            stack.extend(node.children)
+            for item in node.answer_content:
+                if isinstance(item, AnswerImage) and item.local_id not in seen_assets:
+                    seen_assets.add(item.local_id)
+                    sheet.asset_refs.append(
+                        {"local_id": item.local_id, "mime_type": item.mime_type}
+                    )
 
     compute_warnings(sheet)
     return sheet
@@ -512,6 +576,7 @@ def node_to_dict(node: AnsNode) -> dict:
     return {
         "label": node.label,
         "answer": list(node.answer),
+        "answer_content": [answer_content_to_dict(item) for item in node.answer_content],
         "marks": _dec(node.marks),
         "children": [node_to_dict(c) for c in node.children],
         "has_non_text_content": node.has_non_text_content,
@@ -522,10 +587,40 @@ def node_from_dict(d: dict) -> AnsNode:
     return AnsNode(
         label=d.get("label"),
         answer=[str(a) for a in d.get("answer", [])],
+        answer_content=[answer_content_from_dict(item) for item in d.get("answer_content", [])],
         marks=_to_dec(d.get("marks")),
         children=[node_from_dict(c) for c in d.get("children", [])],
         has_non_text_content=bool(d.get("has_non_text_content", False)),
     )
+
+
+def answer_content_to_dict(item: AnswerContent) -> dict:
+    if isinstance(item, AnswerParagraph):
+        return {"kind": item.kind, "text": item.text}
+    if isinstance(item, AnswerTable):
+        return {"kind": item.kind, "rows": item.rows}
+    if isinstance(item, AnswerImage):
+        return {
+            "kind": item.kind,
+            "local_id": item.local_id,
+            "mime_type": item.mime_type,
+        }
+    return {"kind": item.kind, "reason": item.reason}
+
+
+def answer_content_from_dict(value: dict) -> AnswerContent:
+    kind = value.get("kind")
+    if kind == "paragraph":
+        return AnswerParagraph(text=str(value.get("text", "")))
+    if kind == "table":
+        return AnswerTable(
+            rows=[[str(cell) for cell in row] for row in value.get("rows", [])]
+        )
+    if kind == "image":
+        return AnswerImage(
+            local_id=str(value.get("local_id", "")), mime_type=value.get("mime_type")
+        )
+    return UnsupportedAnswerContent(reason=str(value.get("reason", kind or "unknown")))
 
 
 def warning_to_dict(w: AnsWarning) -> dict:

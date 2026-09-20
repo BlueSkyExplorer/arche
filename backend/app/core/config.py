@@ -21,6 +21,10 @@ class Settings(BaseSettings):
         default="/Applications/LibreOffice.app/Contents/MacOS/soffice",
         validation_alias="LIBREOFFICE_BIN",
     )
+    libreoffice_python_bin: str | None = Field(
+        default=None,
+        validation_alias="LIBREOFFICE_PYTHON_BIN",
+    )
     export_max_pdf_timeout_s: int = Field(
         default=120, ge=1, validation_alias="EXPORT_MAX_PDF_TIMEOUT_S"
     )
