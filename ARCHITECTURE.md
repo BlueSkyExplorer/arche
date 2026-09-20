@@ -265,6 +265,11 @@ POST   /api/v1/papers/{id}/sections
 POST   /api/v1/papers/{id}/export?format=docx
 POST   /api/v1/papers/{id}/export?format=pdf
 
+POST   /api/v1/exam-imports/{id}/answer-sheet-preview
+POST   /api/v1/exam-imports/{id}/answer-sheet-exports
+GET    /api/v1/answer-sheet-exports/{id}
+GET    /api/v1/answer-sheet-exports/{id}/download
+
 POST   /api/v1/assets
 GET    /api/v1/exports/{id}
 ```
@@ -345,6 +350,11 @@ Use XML-level helpers only when necessary for:
 Keep these helpers isolated under `backend/app/document/ooxml/` and test them with fixtures.
 
 Uploaded source documents are accepted as `.docx` or legacy `.doc`; `.doc` files are first converted to `.docx` by headless LibreOffice (`app/services/doc_convert.py`, reusing the `LIBREOFFICE_BIN` setting and the same invocation shape as PDF conversion). Macro-enabled `.docm` is rejected.
+
+Completed answer sheets use a parallel domain entry point but the same renderer,
+OOXML, storage, template-validation, and authorization infrastructure. Their
+semantic source is the reviewed AnsSheet snapshot, not Question Library or
+Paper. See ADR-0010.
 
 ## 10. PDF Strategy
 

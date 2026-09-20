@@ -122,3 +122,16 @@ looks-correct-but-incomplete paper.
 A source-format conversion (notably legacy `.doc` → `.docx`) that may drop
 content. Lossy results are flagged `needs_review`, never reported as a clean
 import. `.docx` is the canonical, first-class input format.
+
+## Answer Sheet (AnsSheet)
+
+A reviewed semantic answer key owned by an `ExamImport`. It contains sections,
+MCQ answers, an arbitrary-depth answer hierarchy, leaf-only authoritative marks,
+and typed answer content (paragraph/table/image). Approval marks durable
+completion; it never creates Question Library entries.
+
+## Answer-sheet export snapshot
+
+An immutable audit record combining a reviewed AnsSheet snapshot, Template
+Profile config/version snapshot, per-document metadata, render validation, and
+the stored DOCX. It remains reproducible after the live template changes.
