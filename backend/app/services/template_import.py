@@ -1,8 +1,8 @@
 """Best-effort mapping of a school-format DOCX into a template-profile draft.
 
 Deterministic, no LLM. Every field of the strict ``TemplateProfileCreate``
-schema is populated; values that could not be inferred get sane defaults and
-land in ``unmapped`` so the teacher can review them in the UI.
+schema is populated; formatting defaults are explicitly separated from source
+evidence so absent or low-confidence document metadata is never invented.
 """
 from __future__ import annotations
 
@@ -15,8 +15,7 @@ from docx import Document
 from docx.oxml.ns import qn
 from docx.shared import Length
 
-from app.schemas.template_profile import TemplateProfileCreate
-from app.services.ai_client import AIClient, AIClientError
+from app.schemas.template_profile import TemplateProfileImportDraft
 
 A4_WIDTH_MM = 210.0
 A4_HEIGHT_MM = 297.0
@@ -27,26 +26,6 @@ _TOP_LEVEL_NUMBER = re.compile(r"^\s*\d+[.)、．]\s")
 _SUB_LEVEL_NUMBER = re.compile(r"^\s*\(?[a-zＡ-Ｚ一二三四五六]\)?[.)、．]?\s", re.IGNORECASE)
 _ANSWER_LINE = re.compile(r"_{3,}|…{3,}|答.?[：:]\s*$")
 _MARKS_ZH = re.compile(r"[（(]\s*(\d+(?:\.\d+)?)\s*分\s*[）)]")
-
-
-def _document_skeleton(doc: Any) -> str:
-    parts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-    for ti, table in enumerate(doc.tables):
-        parts.append(f"--- table {ti} ---")
-        for row in table.rows:
-            parts.append(" | ".join(c.text.strip() for c in row.cells))
-    return "\n".join(parts)
-
-
-def _suggest_template_ai(skeleton: str, client: AIClient) -> dict:
-    system = (
-        "你是香港試卷格式辨識器。推斷 school_name、question_style(如 Q1./1./(1))、"
-        "marks_format(如 （{marks}分） / ({marks} marks))。只輸出JSON:"
-        "{school_name,question_style,marks_format}。"
-    )
-    return client.complete_json(
-        [{"role": "system", "content": system}, {"role": "user", "content": skeleton}]
-    )
 
 
 def _emus_to_mm(value: Length | None, default: float) -> float:
@@ -109,9 +88,12 @@ def _has_page_field(paragraph: Any) -> bool:
 
 @dataclass
 class TemplateImportDraft:
-    profile: TemplateProfileCreate
+    profile: TemplateProfileImportDraft
     confidence: dict[str, float] = field(default_factory=dict)
     unmapped: list[str] = field(default_factory=list)
+    detected_fields: dict[str, dict[str, Any]] = field(default_factory=dict)
+    evidence: dict[str, list[dict[str, str]]] = field(default_factory=dict)
+    defaults_used: list[str] = field(default_factory=list)
     needs_review: bool = False
 
 
@@ -144,12 +126,18 @@ def import_template_docx(data: bytes) -> TemplateImportDraft:
 
     # Numbering hints from body text ("1." vs "(1)", "(a)" vs "a)").
     body_paras = _collect_all_text(doc)
+    # A body candidate is evidence only, not an accepted identity value.  The
+    # unsaved import draft may therefore carry an empty school_name and the
+    # strict create schema forces the teacher to confirm it before persistence.
     school_name = header_text
-    if not school_name:
-        for t in body_paras:
-            if t and len(t) <= 40 and not _MARKS_ZH.search(t):
-                school_name = t
-                break
+    body_school_candidate = next(
+        (
+            text
+            for text in body_paras
+            if text and len(text) <= 40 and not _MARKS_ZH.search(text)
+        ),
+        None,
+    )
     question_style, sub_question_style = "1.", "(a)"
     q_confidence = 0.3
     s_confidence = 0.3
@@ -194,25 +182,10 @@ def import_template_docx(data: bytes) -> TemplateImportDraft:
     if answer_lines == 0:
         unmapped.append("answer_lines")
 
-    if not school_name or question_style == "1." or not chinese_marks:
-        from app.core.config import get_settings
-
-        client = AIClient(get_settings())
-        if client.enabled:
-            try:
-                hint = _suggest_template_ai(_document_skeleton(doc), client)
-            except AIClientError:
-                hint = {}
-            school_name = hint.get("school_name") or school_name
-            question_style = hint.get("question_style") or question_style
-            if hint.get("marks_format"):
-                marks_format = hint["marks_format"]
-                chinese_marks = True
-
-    profile = TemplateProfileCreate.model_validate(
+    profile = TemplateProfileImportDraft.model_validate(
         {
             "name": "Imported from DOCX",
-            "school_name": school_name or "Imported school",
+            "school_name": school_name,
             "page_config_json": page,
             "typography_config_json": typography,
             "header_config_json": {"text": header_text},
@@ -237,5 +210,36 @@ def import_template_docx(data: bytes) -> TemplateImportDraft:
         profile=profile,
         confidence=confidence,
         unmapped=unmapped,
+        detected_fields={
+            "school_name": {
+                "value": header_text or None,
+                "candidate": None if header_text else body_school_candidate,
+                "confidence": 0.9 if header_text else (0.4 if body_school_candidate else 0.0),
+                "review_required": not bool(header_text),
+                "source": "header" if header_text else ("body" if body_school_candidate else None),
+            },
+            "header_text": {
+                "value": header_text or None,
+                "confidence": 0.9 if header_text else 0.0,
+                "review_required": not bool(header_text),
+                "source": "header" if header_text else None,
+            },
+            "footer_text": {
+                "value": footer_text or None,
+                "confidence": 0.8 if footer_text else 0.0,
+                "review_required": not bool(footer_text),
+                "source": "footer" if footer_text else None,
+            },
+        },
+        evidence={
+            "header": ([{"location": "header", "text": header_text}] if header_text else []),
+            "footer": ([{"location": "footer", "text": footer_text}] if footer_text else []),
+            "body_school_candidate": (
+                [{"location": "body", "text": body_school_candidate}]
+                if body_school_candidate and not header_text
+                else []
+            ),
+        },
+        defaults_used=[],
         needs_review=bool(unmapped),
     )

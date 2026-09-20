@@ -1,6 +1,6 @@
 """Exam import workflow routes: upload -> extract -> review -> approve."""
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -38,7 +38,7 @@ async def create_exam_import(
     current_user: User,
     db: Db,
     settings: SettingsDep,
-    import_type: Annotated[str, Form()] = "question_paper",
+    import_type: Annotated[Literal["question_paper", "answer_sheet"], Form()] = "question_paper",
 ) -> ExamImportDetail:
     """Upload a .docx / .pdf / .doc exam (question paper or answer sheet)."""
     data = await file.read()
@@ -100,5 +100,5 @@ def get_import_asset(
     if entry is None:
         raise HTTPException(404, "asset not found")
     blob = LocalDirStorage(settings.storage_local_dir).get(entry["storage_key"])
-    mime = sniff_mime(blob) or "application/octet-stream"
+    mime = entry.get("mime_type") or sniff_mime(blob) or "application/octet-stream"
     return Response(blob, media_type=mime)
