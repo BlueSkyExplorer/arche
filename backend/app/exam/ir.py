@@ -125,12 +125,24 @@ class DeclaredMarkEvidence(StrictIRModel):
 class QuestionNode(StrictIRModel):
     """A question or sub-question at arbitrary depth.
 
-    Leaf nodes carry authoritative ``marks``; parents aggregate descendants.
-    ``children`` is recursive — there is no fixed depth limit.
+    Marks semantics (ADR-0004):
+
+    - ``own_marks`` is the only *authoritative* mark and is legal on a leaf node
+      only; a node with ``children`` must leave it ``None``.
+    - ``known_marks_total`` is the sum of all *known* descendant leaf marks
+      (unknown leaves contribute nothing).
+    - ``marks_complete`` is true only when every descendant leaf has a known
+      ``own_marks``.
+    - ``computed_marks`` equals the leaf sum when complete, and is ``None`` when
+      any leaf mark is unknown — it is never silently "the known subtotal".
+
+    ``children`` is recursive — there is no fixed depth limit. The derived
+    quantities above are computed by ``app.exam.validation`` (never stored), so
+    ``own_marks`` remains the single source of truth.
     """
 
     label: str | None = None
-    marks: Decimal | None = Field(default=None, ge=0)
+    own_marks: Decimal | None = Field(default=None, ge=0)
     declared_marks: list[DeclaredMarkEvidence] = Field(default_factory=list)
     content: list[ContentBlock] = Field(default_factory=list)
     children: list[QuestionNode] = Field(default_factory=list)
@@ -139,9 +151,9 @@ class QuestionNode(StrictIRModel):
 
     @model_validator(mode="after")
     def leaf_or_parent(self) -> QuestionNode:
-        if self.marks is not None and self.children:
+        if self.own_marks is not None and self.children:
             raise ValueError(
-                "a QuestionNode with children cannot carry an authoritative mark"
+                "a QuestionNode with children cannot carry an authoritative own_marks"
             )
         return self
 
@@ -189,9 +201,11 @@ class ExtractionConfidence(StrictIRModel):
 
 
 class ValidationReport(StrictIRModel):
-    """Deterministic validation output: issues + review flag + computed total."""
+    """Deterministic validation output: issues + review flag + mark totals."""
 
     issues: list[ValidationIssue] = Field(default_factory=list)
     needs_review: bool = False
-    computed_total: Decimal = Decimal("0")
+    marks_complete: bool = True
+    known_marks_total: Decimal = Decimal("0")
+    computed_total: Decimal | None = None
     confidence: ExtractionConfidence = Field(default_factory=ExtractionConfidence)

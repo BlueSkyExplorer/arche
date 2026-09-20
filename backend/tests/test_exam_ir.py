@@ -29,12 +29,12 @@ def test_question_node_arbitrary_depth() -> None:
             QuestionNode(
                 label="(b)",
                 children=[
-                    QuestionNode(label="(ii)", marks=Decimal("2"), content=[_para("answer")]),
+                    QuestionNode(label="(ii)", own_marks=Decimal("2"), content=[_para("answer")]),
                 ],
             ),
         ],
     )
-    assert node.children[0].children[0].marks == Decimal("2")
+    assert node.children[0].children[0].own_marks == Decimal("2")
     # two more levels deep is also valid
     deep = QuestionNode(
         label="1",
@@ -44,21 +44,21 @@ def test_question_node_arbitrary_depth() -> None:
                 children=[
                     QuestionNode(
                         label="(i)",
-                        children=[QuestionNode(label="(1)", marks=Decimal("1"))],
+                        children=[QuestionNode(label="(1)", own_marks=Decimal("1"))],
                     )
                 ],
             )
         ],
     )
-    assert deep.children[0].children[0].children[0].marks == Decimal("1")
+    assert deep.children[0].children[0].children[0].own_marks == Decimal("1")
 
 
-def test_non_leaf_with_marks_rejected() -> None:
+def test_non_leaf_with_own_marks_rejected() -> None:
     with pytest.raises(ValidationError):
         QuestionNode(
             label="3",
-            marks=Decimal("5"),
-            children=[QuestionNode(label="(b)", marks=Decimal("2"))],
+            own_marks=Decimal("5"),
+            children=[QuestionNode(label="(b)", own_marks=Decimal("2"))],
         )
 
 
@@ -80,7 +80,6 @@ def test_non_image_block_rejects_asset() -> None:
 def test_bbox_ordered() -> None:
     with pytest.raises(ValidationError):
         BBox(x0=0.8, y0=0.0, x1=0.2, y1=1.0)
-    # valid bbox is fine
     assert BBox(x0=0.0, y0=0.0, x1=1.0, y1=1.0).x1 == 1.0
 
 
@@ -101,13 +100,12 @@ def test_declared_marks_are_evidence_not_truth() -> None:
         label="1",
         declared_marks=[DeclaredMarkEvidence(value=Decimal("4"), raw_text="(4 marks)")],
         children=[
-            QuestionNode(label="(a)", marks=Decimal("2")),
-            QuestionNode(label="(b)", marks=Decimal("2")),
+            QuestionNode(label="(a)", own_marks=Decimal("2")),
+            QuestionNode(label="(b)", own_marks=Decimal("2")),
         ],
     )
-    # declared 4 sits beside the leaf structure; it is not the computed value.
     assert node.declared_marks[0].value == Decimal("4")
-    assert node.marks is None  # parent has no own mark
+    assert node.own_marks is None  # parent has no own mark
 
 
 def test_exam_document_holds_assets_and_meta() -> None:

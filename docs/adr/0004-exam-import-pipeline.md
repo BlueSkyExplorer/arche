@@ -64,6 +64,24 @@ are first-class in this shape and only retrofits in Option 2. The existing
 deterministic splitter is preserved as the *default rule-based extractor*, so
 backward compatibility is maintained through the same IR boundary.
 
+## Marks semantics (Phase 1.1)
+
+The Exam IR distinguishes *authoritative* from *derived* mark quantities so that
+a partial result is never mistaken for a complete total:
+
+- `own_marks` — authoritative mark; legal on a leaf node only.
+- `known_marks_total` — sum of all *known* descendant leaf marks (unknown leaves
+  add nothing).
+- `marks_complete` — true only when every descendant leaf has a known mark.
+- `computed_marks` — the leaf sum when `marks_complete` is true; **`None` when
+  any leaf mark is unknown**. It is never silently the known subtotal.
+
+`needs_review` is retained but is *not* a proxy for `marks_complete` — it is also
+set by low confidence, numbering conflicts, page gaps, and asset issues.
+
+Example: `Q3 -> (a)=2, (b)=unknown` yields `known_marks_total=2`,
+`marks_complete=False`, `computed_marks=None`.
+
 ## Consequences
 
 - New `app/exam/` subsystem: `ir.py` (contract), `validation.py` (deterministic

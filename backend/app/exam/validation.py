@@ -1,13 +1,21 @@
 """Deterministic validation & reconciliation for the Exam IR.
 
-No LLM. Validates tree consistency, marks invariants (ADR-0002), declared-vs-
-computed reconciliation, numbering presence, page continuity (cross-page),
-asset reference integrity, and aggregates extraction confidence into a single
-``needs_review`` decision.
+No LLM. Validates tree consistency, marks invariants (ADR-0002 / ADR-0004),
+declared-vs-computed reconciliation, numbering presence, page continuity
+(cross-page), asset reference integrity, and aggregates extraction confidence
+into a single ``needs_review`` decision.
 
-The AI extracts *semantics*; this module verifies that the result is a
-consistent, reviewable structure and derives every computed total from leaf
-marks — never from declared values.
+Marks semantics (the invariant this module enforces):
+
+- ``own_marks`` is authoritative and legal on a leaf only.
+- ``known_marks_total`` is the sum of *known* leaf marks; unknown leaves add 0.
+- ``marks_complete`` is true only when every descendant leaf has a known mark.
+- ``computed_marks`` is the leaf sum when complete and ``None`` when any leaf
+  mark is unknown — it is never silently the known subtotal, so downstream code
+  cannot mistake a partial total for a complete one.
+- ``needs_review`` is separate: it also reflects low confidence, numbering
+  conflicts, page gaps, and asset issues, so it is never a proxy for
+  ``marks_complete``.
 """
 
 from __future__ import annotations
@@ -18,7 +26,6 @@ from app.exam.ir import (
     ExamDocument,
     ExtractionConfidence,
     QuestionNode,
-    Section,
     ValidationIssue,
     ValidationReport,
 )
@@ -26,19 +33,46 @@ from app.exam.ir import (
 LOW_CONFIDENCE_THRESHOLD = 0.5
 
 
-def _compute_node_marks(node: QuestionNode) -> Decimal:
+def known_marks_total(node: QuestionNode) -> Decimal:
+    """Sum of all *known* descendant leaf marks (unknown leaves contribute 0)."""
     if node.children:
-        return sum((_compute_node_marks(child) for child in node.children), Decimal("0"))
-    return node.marks if node.marks is not None else Decimal("0")
+        return sum((known_marks_total(child) for child in node.children), Decimal("0"))
+    return node.own_marks if node.own_marks is not None else Decimal("0")
 
 
-def _computed_section_marks(section: Section) -> Decimal:
-    return sum((_compute_node_marks(q) for q in section.questions), Decimal("0"))
+def marks_complete(node: QuestionNode) -> bool:
+    """True when every descendant leaf carries a known ``own_marks``."""
+    if node.children:
+        return all(marks_complete(child) for child in node.children)
+    return node.own_marks is not None
 
 
-def computed_total(doc: ExamDocument) -> Decimal:
-    """The authoritative paper total: sum of all leaf marks."""
-    return sum((_computed_section_marks(section) for section in doc.sections), Decimal("0"))
+def computed_marks(node: QuestionNode) -> Decimal | None:
+    """The authoritative mark of a subtree, or ``None`` when incomplete."""
+    return known_marks_total(node) if marks_complete(node) else None
+
+
+def document_known_total(doc: ExamDocument) -> Decimal:
+    return sum(
+        (known_marks_total(q) for section in doc.sections for q in section.questions),
+        Decimal("0"),
+    )
+
+
+def document_marks_complete(doc: ExamDocument) -> bool:
+    return all(marks_complete(q) for section in doc.sections for q in section.questions)
+
+
+def computed_total(doc: ExamDocument) -> Decimal | None:
+    """The authoritative paper total, or ``None`` when any question is incomplete."""
+    total = Decimal("0")
+    for section in doc.sections:
+        for question in section.questions:
+            value = computed_marks(question)
+            if value is None:
+                return None
+            total += value
+    return total
 
 
 def _collect_pages(node: QuestionNode, pages: list[int]) -> None:
@@ -64,12 +98,12 @@ def _validate_node(
         flags["needs_review"] = True
 
     # Leaf-only marks: the schema already rejects this, but validate defensively.
-    if node.marks is not None and node.children:
+    if node.own_marks is not None and node.children:
         issues.append(
             ValidationIssue(
                 code="non_leaf_with_marks",
                 severity="blocking",
-                message="a node with children cannot carry an authoritative mark",
+                message="a node with children cannot carry an authoritative own_marks",
                 location=path,
                 source=source,
             )
@@ -77,7 +111,7 @@ def _validate_node(
         flags["needs_review"] = True
 
     # Unknown marks: a leaf with no detected mark stays None, never 0.
-    if not node.children and node.marks is None:
+    if not node.children and node.own_marks is None:
         issues.append(
             ValidationIssue(
                 code="unknown_marks",
@@ -91,7 +125,7 @@ def _validate_node(
 
     # Numbering presence.
     if node.label is None:
-        empty = not node.content and not node.children and node.marks is None
+        empty = not node.content and not node.children and node.own_marks is None
         if empty:
             issues.append(
                 ValidationIssue(
@@ -114,11 +148,13 @@ def _validate_node(
             )
         flags["needs_review"] = True
 
-    # Declared vs computed at this node.
+    # Declared vs computed: only comparable when the subtree is complete. When
+    # marks are incomplete there is no false "mismatch" — the unknown_marks
+    # issues already drive review.
     if node.declared_marks:
         declared = sum((m.value for m in node.declared_marks), Decimal("0"))
-        computed = _compute_node_marks(node)
-        if declared != computed:
+        computed = computed_marks(node)
+        if computed is not None and declared != computed:
             issues.append(
                 ValidationIssue(
                     code="declared_computed_mismatch",
@@ -183,18 +219,20 @@ def validate_exam_document(doc: ExamDocument) -> ValidationReport:
     for section_index, section in enumerate(doc.sections):
         section_path = section.title or f"Section {section_index + 1}"
         if section.declared_subtotal is not None:
-            computed = _computed_section_marks(section)
-            if section.declared_subtotal != computed:
-                issues.append(
-                    ValidationIssue(
-                        code="declared_computed_mismatch",
-                        severity="warning",
-                        message=f"declared {section.declared_subtotal} != computed {computed}",
-                        location=section_path,
-                        source=section.source,
+            values = [computed_marks(q) for q in section.questions]
+            if all(value is not None for value in values):
+                computed = sum((v for v in values if v is not None), Decimal("0"))
+                if section.declared_subtotal != computed:
+                    issues.append(
+                        ValidationIssue(
+                            code="declared_computed_mismatch",
+                            severity="warning",
+                            message=f"declared {section.declared_subtotal} != computed {computed}",
+                            location=section_path,
+                            source=section.source,
+                        )
                     )
-                )
-                flags["needs_review"] = True
+                    flags["needs_review"] = True
         for question in section.questions:
             question_path = f"{section_path}/{question.label or '?'}"
             _validate_node(
@@ -208,7 +246,7 @@ def validate_exam_document(doc: ExamDocument) -> ValidationReport:
             min_confidence = min(min_confidence, question.confidence)
 
     total = computed_total(doc)
-    if doc.declared_total is not None and doc.declared_total != total:
+    if doc.declared_total is not None and total is not None and doc.declared_total != total:
         issues.append(
             ValidationIssue(
                 code="declared_computed_mismatch",
@@ -255,6 +293,8 @@ def validate_exam_document(doc: ExamDocument) -> ValidationReport:
     return ValidationReport(
         issues=issues,
         needs_review=needs_review,
+        marks_complete=document_marks_complete(doc),
+        known_marks_total=document_known_total(doc),
         computed_total=total,
         confidence=confidence,
     )
