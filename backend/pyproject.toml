@@ -33,6 +33,7 @@ testpaths = ["tests"]
 markers = [
     "db: requires TEST_DATABASE_URL pointing to PostgreSQL",
     "libreoffice: requires a working LibreOffice binary",
+    "integration: requires a real external service (AI API key), opt-in via -m integration",
 ]
 
 [tool.ruff]
