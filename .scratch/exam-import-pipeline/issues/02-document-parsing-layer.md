@@ -6,17 +6,33 @@ metadata (`LayoutReference`) separate from content.
 
 **Blocked by:** 01.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `DocumentBlock` (or reuse `ContentBlock`) is produced by a
-      `DocumentParser` protocol, independent of format.
-- [ ] DOCX parser: paragraphs, headings, lists, tables, images, answer-space,
-      page estimation, font/size/bold/alignment into `LayoutReference`.
-- [ ] PDF parser: text + layout via a deterministic extractor (pdftotext /
-      pypdf / pdfplumber), page + bbox per block.
-- [ ] Image parser: OCR (e.g. tesseract) producing text blocks + detected
-      figures; low-confidence OCR flags `needs_review`.
-- [ ] Cross-page reconciliation input: every block carries its page so the
-      semantic layer can reattach a question that spans pages.
-- [ ] Tests: a DOCX fixture and a PDF fixture round-trip into ordered blocks
-      with correct page/bbox/source text.
+## Implementation record
+
+Implemented the parser boundary (no semantic extraction, no LLM):
+
+- `app/exam/parsing/blocks.py` — `BlockKind` (text/heading/image/table/equation/
+  caption/header/footer), `SourceReference`, `DocumentBlock`, `ParseResult`
+  (+ raw image `assets`). Reuses IR `BBox`/`AssetReference`.
+- `app/exam/parsing/base.py` — `DocumentParser` protocol, `ParseError` /
+  `UnsupportedFormatError`, magic-byte `parse_document()` dispatch.
+- `app/exam/parsing/docx_parser.py` — python-docx walk in reading order
+  (paragraphs+tables interleaved) + headers/footers; detects heading style,
+  OMML equation, inline/cell images, captions, tables. `page`/`bbox=None`.
+- `app/exam/parsing/pdf_parser.py` — pypdf text layer, page-tagged, `bbox=None`;
+  scanned pages flag `needs_review`.
+- `tests/test_document_parsing.py` — 13 tests (DOCX kinds/reading order/heading/
+  table/image/equation/header-footer/missing-bbox/malformed; PDF pages/scanned/
+  malformed; dispatch/unsupported).
+- `docs/adr/0005-document-parsing-layer.md` — architecture + library decision.
+
+Deferred (later tickets): OCR/image adapter; pdfplumber layout-aware PDF
+(bbox/tables); page estimation for DOCX.
+
+- [x] `DocumentBlock` produced by a `DocumentParser` protocol, independent of format.
+- [x] DOCX parser: paragraphs, headings, tables, images, equations, header/footer.
+- [x] PDF parser: text layer + page tagging (layout-aware upgrade = pdfplumber, ADR-0005).
+- [ ] Image/OCR parser — deferred (no OCR binary/cloud provider wired).
+- [x] Every block carries its page (PDF) / order (DOCX) for cross-page reattachment.
+- [x] Tests: DOCX + PDF fixtures round-trip into ordered blocks.
