@@ -144,9 +144,11 @@ def build() -> bytes:
 
 
 def main() -> None:
+    from app.document.ooxml.package import normalize_zip_timestamps
+
     FIXTURE.mkdir(parents=True, exist_ok=True)
     target = FIXTURE / "answer_sheet.docx"
-    target.write_bytes(build())
+    target.write_bytes(normalize_zip_timestamps(build()))
     print(f"wrote {target} ({target.stat().st_size} bytes)")
 
 
