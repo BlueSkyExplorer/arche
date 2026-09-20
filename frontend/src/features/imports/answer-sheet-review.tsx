@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { ApiError } from "@/lib/api/client";
 import {
   approveImport,
-  importAssetUrl,
   saveReviewed,
   type AnsNode,
   type AnsSection,
@@ -17,6 +16,8 @@ import {
   type ExamImportDetail,
 } from "@/lib/api/exam-imports";
 import { leafMarks, totalsMismatch } from "@/lib/answer-sheet";
+import { answerSheetReviewReadOnly } from "@/lib/answer-sheet-format";
+import { AuthenticatedImportImage } from "./authenticated-import-image";
 
 type NodePath = number[]; // [sectionIndex, questionIndex, childIndex, ...]
 
@@ -95,7 +96,7 @@ export default function AnswerSheetReview({
   }
 
   if (!sheet) return null;
-  const isCompleted = detail.status === "completed";
+  const isCompleted = answerSheetReviewReadOnly(detail.status);
 
   return (
     <main className="mx-auto w-full max-w-6xl p-6">
@@ -110,6 +111,11 @@ export default function AnswerSheetReview({
           </p>
         </div>
         <div className="flex gap-2">
+          {isCompleted && (
+            <Button asChild>
+              <Link href={`/imports/${importId}/format`}>Format / 套用格式</Link>
+            </Button>
+          )}
           <Button variant="outline" onClick={() => void onSave()} disabled={saving || isCompleted}>
             <Save className="size-4" /> {saving ? "Saving…" : "Save / 儲存"}
           </Button>
@@ -124,6 +130,12 @@ export default function AnswerSheetReview({
           {notice}
         </p>
       )}
+      {isCompleted && (
+        <p className="mb-3 rounded border bg-muted px-3 py-2 text-sm">
+          Completed answer sheets are read-only. Approval records durable completion; no Question
+          Library questions were created. / 已完成的答案卷只供檢視。
+        </p>
+      )}
       {error && (
         <p className="mb-3 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
@@ -133,10 +145,11 @@ export default function AnswerSheetReview({
       {(sheet.asset_refs ?? []).length > 0 && (
         <div className="mb-4 flex flex-wrap gap-2">
           {(sheet.asset_refs ?? []).map((ref) => (
-            <img
+            <AuthenticatedImportImage
               key={ref.local_id}
-              src={importAssetUrl(importId, ref.local_id)}
-              alt={ref.local_id}
+              token={token}
+              importId={importId}
+              localId={ref.local_id}
               className="max-h-24 rounded border"
             />
           ))}
@@ -146,7 +159,7 @@ export default function AnswerSheetReview({
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
         <section className="space-y-5">
           {sheet.sections.map((section, si) => (
-            <SectionView key={si} section={section} sectionIndex={si} onPatch={patchNode} />
+            <SectionView key={si} section={section} sectionIndex={si} onPatch={patchNode} readOnly={isCompleted} token={token} importId={importId} />
           ))}
         </section>
 
@@ -169,10 +182,16 @@ function SectionView({
   section,
   sectionIndex,
   onPatch,
+  readOnly,
+  token,
+  importId,
 }: {
   section: AnsSection;
   sectionIndex: number;
   onPatch: (path: NodePath, patch: Partial<AnsNode>) => void;
+  readOnly: boolean;
+  token: string;
+  importId: string;
 }) {
   const declared = section.declared_total;
   const computed = section.computed_total;
@@ -212,6 +231,9 @@ function SectionView({
             node={q}
             path={[sectionIndex, qi]}
             onPatch={onPatch}
+            readOnly={readOnly}
+            token={token}
+            importId={importId}
           />
         ))}
       </div>
@@ -223,10 +245,16 @@ function QuestionNodeView({
   node,
   path,
   onPatch,
+  readOnly,
+  token,
+  importId,
 }: {
   node: AnsNode;
   path: NodePath;
   onPatch: (path: NodePath, patch: Partial<AnsNode>) => void;
+  readOnly: boolean;
+  token: string;
+  importId: string;
 }) {
   const depth = path.length - 2;
   const isLeaf = !node.children || node.children.length === 0;
@@ -251,6 +279,7 @@ function QuestionNodeView({
               className="h-7 w-20"
               value={node.marks ?? ""}
               placeholder="?"
+              disabled={readOnly}
               onChange={(e) =>
                 onPatch(path, { marks: e.target.value === "" ? null : e.target.value })
               }
@@ -268,12 +297,50 @@ function QuestionNodeView({
           aria-label="answer"
           className="mt-1 min-h-16 w-full rounded-md border bg-background p-2 text-sm"
           value={(node.answer ?? []).join("\n")}
-          onChange={(e) => onPatch(path, { answer: e.target.value.split("\n") })}
+          disabled={readOnly}
+          onChange={(e) => {
+            const lines = e.target.value.split("\n");
+            const nonParagraph = (node.answer_content ?? []).filter(
+              (content) => content.kind !== "paragraph",
+            );
+            onPatch(path, {
+              answer: lines,
+              answer_content: [
+                ...lines.filter(Boolean).map((text) => ({ kind: "paragraph" as const, text })),
+                ...nonParagraph,
+              ],
+            });
+          }}
         />
       )}
 
+      {(node.answer_content ?? []).map((content, index) => {
+        if (content.kind === "table") {
+          return (
+            <table key={index} className="mt-2 w-full border-collapse text-sm">
+              <tbody>
+                {content.rows.map((row, rowIndex) => (
+                  <tr key={rowIndex}>
+                    {row.map((cell, cellIndex) => (
+                      <td key={cellIndex} className="border p-1">{cell}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          );
+        }
+        if (content.kind === "image") {
+          return <AuthenticatedImportImage key={index} token={token} importId={importId} localId={content.local_id} className="mt-2 max-h-64 rounded border" />;
+        }
+        if (content.kind === "unsupported") {
+          return <p key={index} className="mt-1 text-sm text-destructive">Unsupported content: {content.reason}</p>;
+        }
+        return null;
+      })}
+
       {(node.children ?? []).map((child, ci) => (
-        <QuestionNodeView key={ci} node={child} path={[...path, ci]} onPatch={onPatch} />
+        <QuestionNodeView key={ci} node={child} path={[...path, ci]} onPatch={onPatch} readOnly={readOnly} token={token} importId={importId} />
       ))}
     </div>
   );
