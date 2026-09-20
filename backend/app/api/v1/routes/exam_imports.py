@@ -1,19 +1,20 @@
 """Exam import workflow routes: upload -> extract -> review -> approve."""
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentUser
 from app.core.config import Settings, get_settings
 from app.core.deps import get_current_user, get_db
 from app.core.storage import LocalDirStorage
-from app.exam.ir import ExamDocument
 from app.models import ExamImport
 from app.schemas.exam_import import ExamImportDetail, ExamImportSummary
 from app.services import exam_imports
+from app.services.assets import sniff_mime
 
 router = APIRouter(prefix="/exam-imports", tags=["exam-imports"])
 User = Annotated[CurrentUser, Depends(get_current_user)]
@@ -37,14 +38,21 @@ async def create_exam_import(
     current_user: User,
     db: Db,
     settings: SettingsDep,
+    import_type: Annotated[str, Form()] = "question_paper",
 ) -> ExamImportDetail:
-    """Upload a .docx / .pdf / .doc exam and run parse + extract + validate."""
+    """Upload a .docx / .pdf / .doc exam (question paper or answer sheet)."""
     data = await file.read()
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File too large (max 10MB)")
     storage = LocalDirStorage(settings.storage_local_dir)
     imp = exam_imports.create_import(
-        db, current_user, storage, settings, file.filename or "upload", data
+        db,
+        current_user,
+        storage,
+        settings,
+        file.filename or "upload",
+        data,
+        import_type=import_type,
     )
     return _detail(imp)
 
@@ -61,9 +69,9 @@ def get_exam_import(import_id: UUID, current_user: User, db: Db) -> ExamImportDe
 
 @router.put("/{import_id}/reviewed", response_model=ExamImportDetail)
 def update_reviewed(
-    import_id: UUID, reviewed: ExamDocument, current_user: User, db: Db
+    import_id: UUID, reviewed: dict[str, Any], current_user: User, db: Db
 ) -> ExamImportDetail:
-    """Save a human-reviewed document (re-validated; never overwrites extracted)."""
+    """Save a human-reviewed document / answer sheet (re-validated; never overwrites extracted)."""
     imp = exam_imports.save_reviewed(db, import_id, current_user, reviewed)
     return _detail(imp)
 
@@ -76,3 +84,21 @@ def approve_import(
     storage = LocalDirStorage(settings.storage_local_dir)
     imp = exam_imports.approve_import(db, import_id, current_user, storage)
     return _detail(imp)
+
+
+@router.get("/{import_id}/assets/{local_id}")
+def get_import_asset(
+    import_id: UUID,
+    local_id: str,
+    current_user: User,
+    db: Db,
+    settings: SettingsDep,
+) -> Response:
+    """Serve a raster image extracted from this import (by local_id)."""
+    imp = exam_imports.get_import(db, import_id, current_user)
+    entry = imp.asset_manifest.get(local_id)
+    if entry is None:
+        raise HTTPException(404, "asset not found")
+    blob = LocalDirStorage(settings.storage_local_dir).get(entry["storage_key"])
+    mime = sniff_mime(blob) or "application/octet-stream"
+    return Response(blob, media_type=mime)

@@ -102,6 +102,8 @@ class AnsSheet:
     title: str
     sections: list[AnsSection] = field(default_factory=list)
     warnings: list[AnsWarning] = field(default_factory=list)
+    # raster-image asset references (local_id -> mime) found in the source
+    asset_refs: list[dict] = field(default_factory=list)
 
 
 # --- marks ------------------------------------------------------------------
@@ -399,7 +401,29 @@ def extract_answer_sheet(parsed: ParseResult) -> AnsSheet:
                 for b in blocks
             )
 
-        # declared vs computed: keep both, flag a mismatch, never fudge leaf marks
+        sheet.sections.append(sec)
+
+    # raster-image asset references (for preview / persistence)
+    for b in parsed.blocks:
+        if b.kind == BlockKind.IMAGE and b.asset is not None:
+            sheet.asset_refs.append(
+                {"local_id": b.asset.local_id, "mime_type": b.asset.mime_type}
+            )
+
+    compute_warnings(sheet)
+    return sheet
+
+
+def compute_warnings(sheet: AnsSheet) -> None:
+    """(Re)compute ``sheet.warnings`` from the sections.
+
+    Keeps the declared total and the computed leaf-mark total separate and flags
+    a mismatch — never fudging leaf marks to match the declared total. Also
+    flags sections with non-text content. Called after extraction and again
+    after human review so the warnings always reflect the current data.
+    """
+    sheet.warnings = []
+    for sec in sheet.sections:
         computed = sec.computed_total()
         if (
             sec.declared_total is not None
@@ -413,7 +437,7 @@ def extract_answer_sheet(parsed: ParseResult) -> AnsSheet:
                         f"declares {sec.declared_total} marks but extracted leaf "
                         f"marks sum to {computed}"
                     ),
-                    section=heading,
+                    section=sec.title,
                     declared=sec.declared_total,
                     computed=computed,
                 )
@@ -424,11 +448,9 @@ def extract_answer_sheet(parsed: ParseResult) -> AnsSheet:
                     code="non_text_content",
                     message="contains image/diagram content that was not extracted "
                     "as text (no OCR)",
-                    section=heading,
+                    section=sec.title,
                 )
             )
-        sheet.sections.append(sec)
-    return sheet
 
 
 # --- render -----------------------------------------------------------------
@@ -471,3 +493,98 @@ def render(sheet: AnsSheet) -> str:
         for w in sheet.warnings:
             lines.append(f"  - [{w.code}] {w.message}")
     return "\n".join(lines)
+
+
+# --- JSON serialization (for durable persistence / API) ---------------------
+
+
+def _dec(v: Decimal | None) -> str | None:
+    return str(v) if v is not None else None
+
+
+def _to_dec(v: object) -> Decimal | None:
+    if v is None or v == "":
+        return None
+    return Decimal(str(v))
+
+
+def node_to_dict(node: AnsNode) -> dict:
+    return {
+        "label": node.label,
+        "answer": list(node.answer),
+        "marks": _dec(node.marks),
+        "children": [node_to_dict(c) for c in node.children],
+        "has_non_text_content": node.has_non_text_content,
+    }
+
+
+def node_from_dict(d: dict) -> AnsNode:
+    return AnsNode(
+        label=d.get("label"),
+        answer=[str(a) for a in d.get("answer", [])],
+        marks=_to_dec(d.get("marks")),
+        children=[node_from_dict(c) for c in d.get("children", [])],
+        has_non_text_content=bool(d.get("has_non_text_content", False)),
+    )
+
+
+def warning_to_dict(w: AnsWarning) -> dict:
+    return {
+        "code": w.code,
+        "message": w.message,
+        "section": w.section,
+        "path": w.path,
+        "declared": _dec(w.declared),
+        "computed": _dec(w.computed),
+    }
+
+
+def warning_from_dict(d: dict) -> AnsWarning:
+    return AnsWarning(
+        code=str(d.get("code", "")),
+        message=str(d.get("message", "")),
+        section=d.get("section"),
+        path=d.get("path"),
+        declared=_to_dec(d.get("declared")),
+        computed=_to_dec(d.get("computed")),
+    )
+
+
+def section_to_dict(sec: AnsSection) -> dict:
+    return {
+        "title": sec.title,
+        "declared_total": _dec(sec.declared_total),
+        "computed_total": _dec(sec.computed_total()),
+        "mcq": sec.mcq,
+        "questions": [node_to_dict(q) for q in sec.questions],
+        "standalone_non_text": sec.standalone_non_text,
+    }
+
+
+def section_from_dict(d: dict) -> AnsSection:
+    mcq = d.get("mcq")
+    return AnsSection(
+        title=str(d.get("title", "")),
+        declared_total=_to_dec(d.get("declared_total")),
+        mcq=[(str(n), str(a)) for n, a in mcq] if mcq else None,
+        questions=[node_from_dict(q) for q in d.get("questions", [])],
+        standalone_non_text=bool(d.get("standalone_non_text", False)),
+    )
+
+
+def sheet_to_dict(sheet: AnsSheet) -> dict:
+    return {
+        "title": sheet.title,
+        "sections": [section_to_dict(s) for s in sheet.sections],
+        "warnings": [warning_to_dict(w) for w in sheet.warnings],
+        "asset_refs": list(sheet.asset_refs),
+    }
+
+
+def sheet_from_dict(d: dict) -> AnsSheet:
+    return AnsSheet(
+        title=str(d.get("title", "")),
+        sections=[section_from_dict(s) for s in d.get("sections", [])],
+        warnings=[warning_from_dict(w) for w in d.get("warnings", [])],
+        asset_refs=list(d.get("asset_refs", [])),
+    )

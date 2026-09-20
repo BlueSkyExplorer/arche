@@ -57,6 +57,9 @@ class ExamImport(TimestampMixin, Base):
 
     source_filename: Mapped[str] = mapped_column(String(255))
     source_type: Mapped[str] = mapped_column(String(10))  # docx / pdf
+    import_type: Mapped[str] = mapped_column(
+        String(30), default="question_paper"
+    )  # question_paper / answer_sheet
     storage_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
     status: Mapped[str] = mapped_column(String(30), default="uploaded")
@@ -77,6 +80,10 @@ class ExamImport(TimestampMixin, Base):
     extracted_document_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     reviewed_document_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # extracted vs reviewed answer sheet (JSON), kept separate (import_type=answer_sheet)
+    answer_sheet_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    reviewed_answer_sheet_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
     validation_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     needs_review: Mapped[bool] = mapped_column(default=True)
@@ -86,3 +93,10 @@ class ExamImport(TimestampMixin, Base):
 
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @property
+    def warning_count(self) -> int:
+        """Answer-sheet warning count (0 for question papers)."""
+        if self.import_type != "answer_sheet" or not self.answer_sheet_json:
+            return 0
+        return len(self.answer_sheet_json.get("warnings", []))

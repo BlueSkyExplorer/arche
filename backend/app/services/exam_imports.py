@@ -9,6 +9,7 @@ the reviewed document into Question Library questions.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -19,6 +20,12 @@ from app.core.auth import CurrentUser
 from app.core.config import Settings
 from app.core.storage import StorageBackend
 from app.exam.extraction import LLMExamExtractor, RuleBasedExamExtractor
+from app.exam.extraction.answer_sheet import (
+    compute_warnings,
+    extract_answer_sheet,
+    sheet_from_dict,
+    sheet_to_dict,
+)
 from app.exam.extraction.interface import ExamExtractor
 from app.exam.ir import ExamDocument, QuestionNode
 from app.exam.materialization import materialize_exam_document
@@ -35,6 +42,9 @@ from app.services.doc_convert import DocConversionError, convert_doc_to_docx
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+ANSWER_SHEET_SCHEMA_VERSION = "answer-sheet-v1"
 
 
 def _set_status(imp: ExamImport, new_status: str) -> None:
@@ -103,6 +113,7 @@ def create_import(
     settings: Settings,
     filename: str,
     data: bytes,
+    import_type: str = "question_paper",
 ) -> ExamImport:
     source_type, data = _normalize_source(data, filename, settings)
 
@@ -110,6 +121,7 @@ def create_import(
         workspace_id=user.workspace_id,
         source_filename=filename or "upload",
         source_type=source_type,
+        import_type=import_type,
         status="uploaded",
     )
     db.add(imp)
@@ -123,20 +135,13 @@ def create_import(
         _set_status(imp, "parsing")
         parsed = parse_document(data, filename=filename)
 
-        _set_status(imp, "extracting")
-        extractor = _build_extractor(settings)
-        doc = extractor.extract(parsed)
-        report = validate_exam_document(doc)
-
-        # persist referenced image bytes (local_id -> storage key) for approve-time
-        # resolution into Asset records.
+        # persist referenced image bytes (local_id -> storage key) for preview/approve
         asset_manifest: dict[str, dict[str, str]] = {}
         for local_id, blob in parsed.assets.items():
             key = f"exam_imports/{user.workspace_id}/{imp.id}/assets/{local_id}"
             storage.put(key, blob)
             asset_manifest[local_id] = {"storage_key": key}
 
-        meta = _extractor_meta(doc)
         imp.blocks_json = [b.model_dump(mode="json") for b in parsed.blocks]
         imp.parser_meta = {
             "page_count": parsed.page_count,
@@ -145,16 +150,37 @@ def create_import(
             "warnings": parsed.warnings,
         }
         imp.asset_manifest = asset_manifest
-        imp.extracted_document_json = doc.model_dump(mode="json")
-        imp.reviewed_document_json = doc.model_dump(mode="json")
-        imp.validation_json = report.model_dump(mode="json")
-        imp.extractor_name = meta["extractor"]
-        imp.provider = meta["provider"]
-        imp.model = meta["model"]
-        imp.schema_version = meta["schema_version"]
-        imp.fallback_occurred = meta["fallback_occurred"]
-        imp.needs_review = report.needs_review
-        _set_status(imp, "needs_review" if report.needs_review else "ready")
+
+        _set_status(imp, "extracting")
+        if import_type == "answer_sheet":
+            # deterministic answer-sheet extraction — zero LLM cost, no fallback
+            sheet = extract_answer_sheet(parsed)
+            if not sheet.sections:
+                raise ValueError(
+                    "no answer-sheet structure detected (expected 甲/乙 section headings)"
+                )
+            imp.answer_sheet_json = sheet_to_dict(sheet)
+            imp.reviewed_answer_sheet_json = sheet_to_dict(sheet)
+            imp.extractor_name = "answer-sheet"
+            imp.schema_version = ANSWER_SHEET_SCHEMA_VERSION
+            imp.fallback_occurred = False
+            imp.needs_review = bool(sheet.warnings)
+            _set_status(imp, "needs_review" if sheet.warnings else "ready")
+        else:
+            extractor = _build_extractor(settings)
+            doc = extractor.extract(parsed)
+            report = validate_exam_document(doc)
+            meta = _extractor_meta(doc)
+            imp.extracted_document_json = doc.model_dump(mode="json")
+            imp.reviewed_document_json = doc.model_dump(mode="json")
+            imp.validation_json = report.model_dump(mode="json")
+            imp.extractor_name = meta["extractor"]
+            imp.provider = meta["provider"]
+            imp.model = meta["model"]
+            imp.schema_version = meta["schema_version"]
+            imp.fallback_occurred = meta["fallback_occurred"]
+            imp.needs_review = report.needs_review
+            _set_status(imp, "needs_review" if report.needs_review else "ready")
     except Exception as exc:  # noqa: BLE001 - record failure, never crash the import
         imp.failure_message = str(exc)[:2000]
         _set_status(imp, "failed")
@@ -164,17 +190,24 @@ def create_import(
 
 
 def save_reviewed(
-    db: Session, import_id: UUID, user: CurrentUser, reviewed: ExamDocument
+    db: Session, import_id: UUID, user: CurrentUser, reviewed: dict[str, Any]
 ) -> ExamImport:
     imp = get_import(db, import_id, user)
     if imp.status not in ("needs_review", "ready"):
         raise HTTPException(409, f"import is not reviewable (status={imp.status})")
-    report = validate_exam_document(reviewed)
-    imp.reviewed_document_json = reviewed.model_dump(mode="json")
-    imp.validation_json = report.model_dump(mode="json")
-    imp.needs_review = report.needs_review
+    if imp.import_type == "answer_sheet":
+        sheet = sheet_from_dict(reviewed)
+        compute_warnings(sheet)
+        imp.reviewed_answer_sheet_json = sheet_to_dict(sheet)
+        imp.needs_review = bool(sheet.warnings)
+    else:
+        doc = ExamDocument.model_validate(reviewed)
+        report = validate_exam_document(doc)
+        imp.reviewed_document_json = doc.model_dump(mode="json")
+        imp.validation_json = report.model_dump(mode="json")
+        imp.needs_review = report.needs_review
     imp.reviewed_at = _now()
-    if imp.status == "needs_review" and not report.needs_review:
+    if imp.status == "needs_review" and not imp.needs_review:
         _set_status(imp, "ready")
     db.commit()
     db.refresh(imp)
@@ -220,6 +253,17 @@ def approve_import(
     imp = get_import(db, import_id, user)
     if imp.status not in ("needs_review", "ready"):
         raise HTTPException(409, f"import is not approvable (status={imp.status})")
+    if imp.import_type == "answer_sheet":
+        if imp.reviewed_answer_sheet_json is None:
+            raise HTTPException(409, "import has no reviewed answer sheet")
+        # answer-sheet data is already persisted (reviewed_answer_sheet_json);
+        # approve is a durable completion, with no Question Library materialization.
+        _set_status(imp, "materializing")
+        imp.completed_at = _now()
+        _set_status(imp, "completed")
+        db.commit()
+        db.refresh(imp)
+        return imp
     if imp.reviewed_document_json is None:
         raise HTTPException(409, "import has no reviewed document")
 

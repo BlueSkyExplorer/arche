@@ -16,6 +16,7 @@ class ExamImportSummary(OrmReadModel):
     workspace_id: UUID
     source_filename: str
     source_type: str
+    import_type: str
     status: str
     extractor_name: str | None
     provider: str | None
@@ -24,6 +25,7 @@ class ExamImportSummary(OrmReadModel):
     needs_review: bool
     failure_message: str | None
     validation_json: dict[str, Any] | None
+    warning_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -37,6 +39,8 @@ class ExamImportDetail(ExamImportSummary):
     blocks_json: list[dict[str, Any]]
     extracted_document_json: dict[str, Any] | None
     reviewed_document_json: dict[str, Any] | None
+    answer_sheet_json: dict[str, Any] | None
+    reviewed_answer_sheet_json: dict[str, Any] | None
     created_question_ids: list[str]
     reviewed_at: datetime | None
     completed_at: datetime | None

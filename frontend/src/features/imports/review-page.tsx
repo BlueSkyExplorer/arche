@@ -15,6 +15,7 @@ import {
   type ExamImportDetail,
   type QuestionNode,
 } from "@/lib/api/exam-imports";
+import AnswerSheetReview from "./answer-sheet-review";
 
 type NodePath = number[]; // [sectionIndex, questionIndex, childIndex, ...]
 
@@ -209,6 +210,9 @@ export default function ReviewPage({ token, importId }: { token: string; importI
   }
   if (error && !detail) {
     return <main className="mx-auto max-w-6xl p-6"><p className="text-destructive">{error}</p><Link href="/imports" className="text-sm underline">← Back to imports</Link></main>;
+  }
+  if (detail && detail.import_type === "answer_sheet") {
+    return <AnswerSheetReview token={token} importId={importId} detail={detail} />;
   }
   if (!detail || !reviewed) return null;
 

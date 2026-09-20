@@ -35,6 +35,7 @@ export default function ImportsPage({ token }: { token: string }) {
   const [error, setError] = useState<string>();
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string>();
+  const [importType, setImportType] = useState<"question_paper" | "answer_sheet">("question_paper");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -72,7 +73,7 @@ export default function ImportsPage({ token }: { token: string }) {
     setUploading(true);
     setUploadError(undefined);
     try {
-      await createExamImport(token, file);
+      await createExamImport(token, file, importType);
       if (fileRef.current) fileRef.current.value = "";
       await load();
     } catch (e) {
@@ -91,7 +92,29 @@ export default function ImportsPage({ token }: { token: string }) {
         </p>
       </div>
 
-      <div className="mb-6 flex items-center gap-3 rounded-lg border bg-card p-4">
+      <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border bg-card p-4">
+        <div className="flex items-center gap-2 text-sm">
+          <label className="flex items-center gap-1">
+            <input
+              type="radio"
+              name="import_type"
+              value="question_paper"
+              checked={importType === "question_paper"}
+              onChange={() => setImportType("question_paper")}
+            />
+            Question Paper / 試卷
+          </label>
+          <label className="flex items-center gap-1">
+            <input
+              type="radio"
+              name="import_type"
+              value="answer_sheet"
+              checked={importType === "answer_sheet"}
+              onChange={() => setImportType("answer_sheet")}
+            />
+            Answer Sheet / 答案卷
+          </label>
+        </div>
         <input ref={fileRef} type="file" accept=".docx,.pdf,.doc" className="text-sm" />
         <Button onClick={onUpload} disabled={uploading}>
           <FileUp className="size-4" />
@@ -123,12 +146,18 @@ export default function ImportsPage({ token }: { token: string }) {
                   <span className={statusColor(imp.status)}>{STATUS_LABEL[imp.status] ?? imp.status}</span>
                   <span className="text-muted-foreground">
                     {" · "}
-                    {imp.extractor_name === "llm" ? "AI" : "Rule-based"}
+                    {imp.import_type === "answer_sheet"
+                      ? "Answer Sheet / 答案卷"
+                      : imp.extractor_name === "llm"
+                        ? "AI"
+                        : "Rule-based"}
                     {imp.fallback_occurred ? " (fallback)" : ""}
                   </span>
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {issueCount(imp)} issue{issueCount(imp) === 1 ? "" : "s"}
+                  {imp.import_type === "answer_sheet"
+                    ? `${imp.warning_count} warning${imp.warning_count === 1 ? "" : "s"}`
+                    : `${issueCount(imp)} issue${issueCount(imp) === 1 ? "" : "s"}`}
                   {imp.failure_message ? ` · ${imp.failure_message}` : ""}
                 </p>
               </div>

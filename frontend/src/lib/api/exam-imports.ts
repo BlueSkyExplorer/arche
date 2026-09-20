@@ -58,6 +58,7 @@ export type ExamImportSummary = {
   id: string;
   source_filename: string;
   source_type: string;
+  import_type: string;
   status: string;
   extractor_name: string | null;
   provider: string | null;
@@ -66,8 +67,42 @@ export type ExamImportSummary = {
   needs_review: boolean;
   failure_message: string | null;
   validation_json: { issues: ValidationIssue[] } | null;
+  warning_count: number;
   created_at: string;
   updated_at: string;
+};
+
+export type AnsNode = {
+  label?: string | null;
+  answer?: string[];
+  marks?: string | number | null;
+  children?: AnsNode[];
+  has_non_text_content?: boolean;
+};
+
+export type AnsSection = {
+  title: string;
+  declared_total?: string | number | null;
+  computed_total?: string | number | null;
+  mcq?: [string, string][] | null;
+  questions?: AnsNode[];
+  standalone_non_text?: boolean;
+};
+
+export type AnsWarning = {
+  code: string;
+  message: string;
+  section?: string | null;
+  path?: string | null;
+  declared?: string | number | null;
+  computed?: string | number | null;
+};
+
+export type AnsSheet = {
+  title: string;
+  sections: AnsSection[];
+  warnings: AnsWarning[];
+  asset_refs?: { local_id: string; mime_type?: string | null }[];
 };
 
 export type ExamImportDetail = ExamImportSummary & {
@@ -75,6 +110,8 @@ export type ExamImportDetail = ExamImportSummary & {
   blocks_json: { id: string; page?: number | null; kind: string; text?: string | null; order: number }[];
   extracted_document_json: ExamDocument | null;
   reviewed_document_json: ExamDocument | null;
+  answer_sheet_json: AnsSheet | null;
+  reviewed_answer_sheet_json: AnsSheet | null;
   created_question_ids: string[];
   reviewed_at: string | null;
   completed_at: string | null;
@@ -84,9 +121,14 @@ export function listExamImports(token: string): Promise<ExamImportSummary[]> {
   return apiFetch<ExamImportSummary[]>("/api/v1/exam-imports", token);
 }
 
-export function createExamImport(token: string, file: File): Promise<ExamImportDetail> {
+export function createExamImport(
+  token: string,
+  file: File,
+  importType: "question_paper" | "answer_sheet" = "question_paper",
+): Promise<ExamImportDetail> {
   const body = new FormData();
   body.set("file", file);
+  body.set("import_type", importType);
   return apiFetch<ExamImportDetail>("/api/v1/exam-imports", token, { method: "POST", body });
 }
 
@@ -94,7 +136,11 @@ export function getExamImport(token: string, id: string): Promise<ExamImportDeta
   return apiFetch<ExamImportDetail>(`/api/v1/exam-imports/${encodeURIComponent(id)}`, token);
 }
 
-export function saveReviewed(token: string, id: string, reviewed: ExamDocument): Promise<ExamImportDetail> {
+export function saveReviewed(
+  token: string,
+  id: string,
+  reviewed: ExamDocument | AnsSheet,
+): Promise<ExamImportDetail> {
   return apiFetch<ExamImportDetail>(`/api/v1/exam-imports/${encodeURIComponent(id)}/reviewed`, token, {
     method: "PUT",
     body: JSON.stringify(reviewed),
@@ -105,4 +151,8 @@ export function approveImport(token: string, id: string): Promise<ExamImportDeta
   return apiFetch<ExamImportDetail>(`/api/v1/exam-imports/${encodeURIComponent(id)}/approve`, token, {
     method: "POST",
   });
+}
+
+export function importAssetUrl(id: string, localId: string): string {
+  return `/api/v1/exam-imports/${encodeURIComponent(id)}/assets/${encodeURIComponent(localId)}`;
 }
