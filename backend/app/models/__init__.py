@@ -1,5 +1,6 @@
 from app.models.asset import Asset
 from app.models.base import Base
+from app.models.exam_import import ExamImport, ExamImportStatus
 from app.models.export import Export
 from app.models.paper import Paper
 from app.models.paper_question import PaperQuestion
@@ -11,6 +12,8 @@ from app.models.workspace import Workspace
 __all__ = [
     "Asset",
     "Base",
+    "ExamImport",
+    "ExamImportStatus",
     "Export",
     "Paper",
     "PaperQuestion",
