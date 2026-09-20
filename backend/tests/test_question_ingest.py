@@ -573,3 +573,81 @@ def test_mc_answer_grid_with_bare_numbers_still_skipped() -> None:
 
     # bare numbers must not be treated as question numbers
     assert ingest_question_docx(buf.getvalue()) == []
+
+
+def test_answer_sheet_fused_labels_and_marks() -> None:
+    from io import BytesIO
+
+    from docx import Document as DocxDocument
+
+    from app.services.question_ingest import ingest_question_docx
+
+    doc = DocxDocument()
+    mcq = doc.add_table(rows=2, cols=4)
+    mcq.cell(0, 0).text = "Question no."
+    mcq.cell(0, 1).text = "Answer"
+    mcq.cell(0, 2).text = "Question no."
+    mcq.cell(0, 3).text = "Answer"
+    mcq.cell(1, 0).text = "1"
+    mcq.cell(1, 1).text = "C"
+    mcq.cell(1, 2).text = "2"
+    mcq.cell(1, 3).text = "D"
+
+    # 3-column answer table: [label, answer, marks] with fused HKDSE labels
+    table = doc.add_table(rows=4, cols=3)
+    table.cell(0, 0).text = "1ai"
+    table.cell(0, 1).text = "The image of the ball was formed on the periphery."
+    table.cell(0, 2).text = "1M"
+    table.cell(1, 0).text = ""
+    table.cell(1, 1).text = "The image was detected in both bright and dim."
+    table.cell(1, 2).text = "1M"
+    table.cell(2, 0).text = "b"
+    table.cell(2, 1).text = "The image was formed on the blind spot."
+    table.cell(2, 2).text = "1M"
+    table.cell(3, 0).text = "2a"
+    table.cell(3, 1).text = "The campaign had been successful."
+    table.cell(3, 2).text = "1M"
+
+    # paragraph section: fused labels + tab-joined sub-label + trailing marks
+    doc.add_paragraph("Paper 2")
+    doc.add_paragraph("1a")
+    doc.add_paragraph("i\tA low body temperature slows down enzyme activity")
+    doc.add_paragraph("1m")
+    doc.add_paragraph("1b")
+    doc.add_paragraph("Old people are less active")
+    doc.add_paragraph("1m")
+
+    buf = BytesIO()
+    doc.save(buf)
+
+    drafts = ingest_question_docx(buf.getvalue())
+    assert len(drafts) == 5, [d.internal_title for d in drafts]
+
+    mcq1, mcq2 = drafts[:2]
+    assert (mcq1.internal_title, mcq2.internal_title) == ("1", "2")
+    assert _texts(mcq1.content_json) == ["Answer: C"]
+    assert _texts(mcq2.content_json) == ["Answer: D"]
+    assert mcq1.marks is None and mcq2.marks is None
+    assert mcq1.needs_review and mcq2.needs_review
+
+    q1 = drafts[2]
+    assert q1.internal_title == "1ai"
+    assert q1.marks == Decimal("3")
+    subs = {s.attrs.label: s for s in q1.content_json.content if s.type == "subQuestion"}
+    assert set(subs) == {"(a)", "(b)"}
+    a_subs = {s.attrs.label: s for s in subs["(a)"].content if s.type == "subQuestion"}
+    assert a_subs["(i)"].attrs.marks == Decimal("2")
+    assert subs["(b)"].attrs.marks == Decimal("1")
+
+    assert drafts[3].internal_title == "2a"
+    assert drafts[3].marks == Decimal("1")
+
+    # paragraph "1a" + "1b" share question number → one merged question
+    p2q1 = drafts[4]
+    assert p2q1.internal_title == "1a"
+    assert p2q1.marks == Decimal("2")
+    psubs = {s.attrs.label: s for s in p2q1.content_json.content if s.type == "subQuestion"}
+    assert set(psubs) == {"(a)", "(b)"}
+    ai = {s.attrs.label: s for s in psubs["(a)"].content if s.type == "subQuestion"}
+    assert ai["(i)"].attrs.marks == Decimal("1")
+    assert psubs["(b)"].attrs.marks == Decimal("1")
