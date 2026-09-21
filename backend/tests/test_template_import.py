@@ -156,3 +156,48 @@ def test_template_import_never_uses_ai_to_invent_low_confidence_values() -> None
     assert draft.detected_fields["school_name"]["review_required"] is True
     assert draft.profile.numbering_config_json.question_style == "1."
     assert draft.profile.question_style_config_json.marks_format == "({marks} marks)"
+
+
+def test_import_detects_answer_sheet_layout_from_mcq_and_indentation() -> None:
+    """High-value layout (MCQ columns/widths/alignment, hierarchy indent) is
+    deterministically extracted; ambiguous fields stay default and are reported."""
+    from io import BytesIO
+
+    from docx import Document as DocxDocument
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Mm
+
+    doc = DocxDocument()
+    doc.sections[0].header.paragraphs[0].text = "TEST SCHOOL"
+
+    mcq = doc.add_table(rows=3, cols=4)
+    for idx, label in enumerate(["題號", "答案", "題號", "答案"]):
+        mcq.cell(0, idx).text = label
+    for row, values in enumerate([("1", "B", "16", "C"), ("2", "C", "17", "C")], start=1):
+        for idx, value in enumerate(values):
+            mcq.cell(row, idx).text = value
+    for col in mcq.columns:
+        col.width = Mm(37)
+    mcq.cell(0, 0).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    doc.add_paragraph("甲部　多項選擇題 (30分)")
+    doc.add_paragraph("Q1. 答案")
+    doc.add_paragraph("(a) 二氧化碳")
+    doc.add_paragraph("(b) 尿素")
+
+    buf = BytesIO()
+    doc.save(buf)
+    draft = import_template_docx(buf.getvalue())
+    layout = draft.profile.answer_sheet_layout_json
+
+    assert layout.mcq_columns == 2
+    assert layout.mcq_question_width_mm == 37.0
+    assert layout.mcq_answer_width_mm == 37.0
+    assert layout.mcq_alignment == "center"
+    assert layout.hierarchy_indent_mm == 0.0
+    assert draft.detected_fields["mcq_columns"]["source"] == "mcq_table"
+    # low-confidence / not-detectable fields stay default and are explicitly listed
+    assert "mcq_borders" in draft.defaults_used
+    assert "answer_table_borders" in draft.defaults_used
+    assert "mcq_row_height_mm" in draft.defaults_used
+    assert "repeat_table_header" in draft.defaults_used
