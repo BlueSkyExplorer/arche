@@ -317,3 +317,95 @@ def test_warning_counts_and_invalid_import_type(
         files={"file": ("paper.docx", b"PK-invalid", "application/octet-stream")},
     )
     assert response.status_code == 422
+
+
+def _render_config(header_text: str, footer_text: str, metadata_lines: list[str]):
+    from app.schemas.template_profile import TemplateProfileConfig
+
+    return TemplateProfileConfig.model_validate(
+        {
+            "page_config_json": {
+                "size": "A4", "margin_top_mm": 20, "margin_right_mm": 20,
+                "margin_bottom_mm": 20, "margin_left_mm": 20,
+            },
+            "typography_config_json": {
+                "chinese_font": "Noto Sans CJK TC", "latin_font": "Arial",
+                "base_font_size_pt": 11, "line_spacing": 1.15,
+            },
+            "header_config_json": {"text": header_text},
+            "footer_config_json": {"text": footer_text, "page_numbering": False},
+            "numbering_config_json": {
+                "question_style": "1.", "sub_question_style": "(a)",
+                "sub_sub_question_style": "roman",
+            },
+            "section_style_config_json": {"spacing_before_pt": 6, "spacing_after_pt": 6},
+            "question_style_config_json": {
+                "spacing_before_pt": 3, "spacing_after_pt": 3,
+                "marks_display": "right", "marks_format": "({marks} marks)",
+                "default_answer_lines": 0,
+            },
+            "answer_sheet_layout_json": {"metadata_lines": metadata_lines},
+            "role_styles": {},
+        }
+    )
+
+
+def test_answer_sheet_render_is_xml_safe_for_metadata_special_chars() -> None:
+    """`&`/`<`/`>` in user-supplied metadata/substitutions must round-trip and
+    stay well-formed; unknown placeholders must stay literal, never error."""
+    import xml.etree.ElementTree as ET
+
+    from app.document.renderer import RenderTemplateProfile
+    from app.document.renderer.answer_sheet import render_answer_sheet
+    from app.exam.extraction.answer_sheet import sheet_from_dict
+    from app.schemas.answer_sheet_export import DocumentMetadata
+
+    sheet = sheet_from_dict(
+        {
+            "title": "t",
+            "sections": [
+                {
+                    "title": "乙部 結構題 (50分)", "declared_total": "50", "mcq": None,
+                    "questions": [
+                        {
+                            "label": "Q1", "answer": [], "answer_content": [], "marks": None,
+                            "children": [
+                                {
+                                    "label": "(a)", "answer": ["A&B <C>"], "marks": "6",
+                                    "answer_content": [{"kind": "paragraph", "text": "A&B <C>"}],
+                                    "children": [], "has_non_text_content": False,
+                                },
+                            ],
+                            "has_non_text_content": False,
+                        }
+                    ],
+                    "standalone_non_text": False,
+                }
+            ],
+            "warnings": [], "asset_refs": [],
+        }
+    )
+    config = _render_config(
+        header_text="期中考 & <{{subject}}>",
+        footer_text="footer {{unknown_placeholder}}",
+        metadata_lines=["{{school_name}} & {{subject}}"],
+    )
+    metadata = DocumentMetadata(
+        school_name="A&B <校>", academic_year="2024-25", exam_name="Final",
+        level="S4", subject="Bio <&>", document_type="Answer",
+    )
+    profile = RenderTemplateProfile(school_name="", logo_asset_id=None, config=config)
+    result = render_answer_sheet(sheet, profile, metadata, {}, lambda _: b"")
+    assert result.docx is not None, result.validation
+
+    document = Document(io.BytesIO(result.docx))
+    body_text = "\n".join(p.text for p in document.paragraphs)
+    header_text = "\n".join(p.text for p in document.sections[0].header.paragraphs)
+    footer_text = "\n".join(p.text for p in document.sections[0].footer.paragraphs)
+
+    assert "A&B <C>" in body_text  # answer text round-trips
+    assert "A&B <校>" in body_text  # substituted metadata line (school_name)
+    assert "Bio <&>" in header_text  # {{subject}} substituted into header
+    assert "{{unknown_placeholder}}" in footer_text  # unknown placeholder stays literal
+    with zipfile.ZipFile(io.BytesIO(result.docx)) as package:
+        ET.fromstring(package.read("word/document.xml"))  # well-formed XML
