@@ -169,3 +169,204 @@ def test_renderer_reuses_source_tabs_and_does_not_invent_parent_total() -> None:
     with ZipFile(BytesIO(result.docx)) as package:
         xml = package.read("word/document.xml")
         assert b"w:tabs" in xml
+
+
+def test_renderer_chains_ancestor_labels_when_source_evidences_tab_chain() -> None:
+    # (b) + (i) + answer + marks on ONE logical line, as Sample (C) evidences.
+    source_document = Document()
+    chained = source_document.add_paragraph("(b)\t(i)\t組織液\t(1分)")
+    chained.paragraph_format.left_indent = Mm(8)
+    chained.paragraph_format.tab_stops.add_tab_stop(Mm(160), WD_TAB_ALIGNMENT.RIGHT)
+    doc2 = source_document.add_paragraph("Q4.\t(b)\tanswer\t(1分)")
+    doc2.paragraph_format.tab_stops.add_tab_stop(Mm(160), WD_TAB_ALIGNMENT.RIGHT)
+    raw = BytesIO()
+    source_document.save(raw)
+    source = raw.getvalue()
+    draft = import_template_docx(source)
+    blueprint = draft.layout_blueprint
+    # Source shows one same-line chain record for the sub+subsub+answer+marks line.
+    chains = blueprint.get("label_chains") or {}
+    assert chains, "blueprint must capture the same-line label chain evidence"
+
+    sheet = sheet_from_dict({
+        "title":"t", "warnings":[], "asset_refs":[],
+        "sections":[{"title":"乙部 結構題 (50分)","declared_total":"50","computed_total":"1","mcq":None,
+        "questions":[{"label":"Q4","answer":[],"answer_content":[],"marks":None,"children":[
+            {"label":"(b)","answer":[],"answer_content":[],"marks":None,"children":[
+                {"label":"(i)","answer":["組織液"],"answer_content":[
+                    {"kind":"paragraph","text":"組織液","marks":"1","mark_raw":"(1分)"},
+                ],"marks":"1","children":[],"has_non_text_content":False},
+            ],"has_non_text_content":False},
+        ],"has_non_text_content":False}],"standalone_non_text":False}],
+    })
+    profile = RenderTemplateProfile(
+        school_name="",
+        logo_asset_id=None,
+        config=_render_config("", "", ["{{school_name}}"]),
+        layout_blueprint=blueprint,
+        source_docx=source,
+    )
+    result = render_answer_sheet(sheet, profile, DocumentMetadata(school_name="S", academic_year="2024", exam_name="E", level="L", subject="B", document_type="A"), {}, lambda _: b"")
+    assert result.docx is not None, result.validation
+    doc = Document(BytesIO(result.docx))
+    line = next(p.text for p in doc.paragraphs if "組織液" in p.text)
+    # one logical line: (b) (i) 組織液 (1分)
+    assert line.startswith("(b)\t(i)\t組織液")
+    assert line.endswith("(1 marks)")
+    # the (b) and (i) labels must NOT be emitted as separate paragraphs
+    assert not any(t.strip() == "(b)" for t in (p.text for p in doc.paragraphs))
+    assert not any(t.strip() == "(i)" for t in (p.text for p in doc.paragraphs))
+
+
+def test_renderer_emits_per_block_marking_points_not_aggregate() -> None:
+    # (a) 二氧化碳 (1分) / 尿素 (1分) -> each paragraph carries its own right-tab mark
+    source = _source()
+    draft = import_template_docx(source)
+    blueprint = draft.layout_blueprint
+    blueprint["parent_totals_by_depth"]["0"] = False
+    sheet = sheet_from_dict({
+        "title":"t", "warnings":[], "asset_refs":[],
+        "sections":[{"title":"乙部 結構題 (50分)","declared_total":"50","computed_total":"2","mcq":None,
+        "questions":[{"label":"Q1","answer":[],"answer_content":[],"marks":None,"children":[
+            {"label":"(a)","answer":["二氧化碳","尿素"],"answer_content":[
+                {"kind":"paragraph","text":"二氧化碳","marks":"1","mark_raw":"(1分)"},
+                {"kind":"paragraph","text":"尿素","marks":"1","mark_raw":"(1分)"},
+            ],"marks":"2","children":[],"has_non_text_content":False},
+        ],"has_non_text_content":False}],"standalone_non_text":False}],
+    })
+    profile = RenderTemplateProfile(
+        school_name="",
+        logo_asset_id=None,
+        config=_render_config("", "", ["{{school_name}}"]),
+        layout_blueprint=blueprint,
+        source_docx=source,
+    )
+    result = render_answer_sheet(sheet, profile, DocumentMetadata(school_name="S", academic_year="2024", exam_name="E", level="L", subject="B", document_type="A"), {}, lambda _: b"")
+    assert result.docx is not None, result.validation
+    doc = Document(BytesIO(result.docx))
+    texts = [p.text for p in doc.paragraphs]
+    co2 = next(t for t in texts if t.endswith("\t(1 marks)") and "二氧化碳" in t)
+    urea = next(t for t in texts if t.endswith("\t(1 marks)") and "尿素" in t)
+    assert "二氧化碳" in co2 and "\t" in co2
+    assert "尿素" in urea and "\t" in urea
+    # no aggregate "(2 marks)" for the leaf
+    assert not any("(2 marks)" in t for t in texts)
+    # the label line itself carries no aggregate marks either
+    label = next(t for t in texts if t.startswith("(a)"))
+    assert "二氧化碳" not in label or label.count("\t") == 0 or "marks" not in label
+
+
+def test_renderer_keeps_question_label_with_first_content_for_pagination() -> None:
+    # Source evidences keepNext on question label paragraphs; renderer must
+    # apply keep_with_next so a label is never orphaned by a page break.
+    source_document = Document()
+    root = source_document.add_paragraph("Q1")
+    root.paragraph_format.keep_with_next = True
+    sub = source_document.add_paragraph("(a)\tformat answer\t(2分)")
+    sub.paragraph_format.keep_with_next = True
+    sub.paragraph_format.tab_stops.add_tab_stop(Mm(160), WD_TAB_ALIGNMENT.RIGHT)
+    raw = BytesIO()
+    source_document.save(raw)
+    source = raw.getvalue()
+    draft = import_template_docx(source)
+    blueprint = draft.layout_blueprint
+    blueprint["parent_totals_by_depth"]["0"] = False
+
+    sheet = sheet_from_dict({
+        "title":"t","warnings":[],"asset_refs":[],
+        "sections":[{"title":"乙部 結構題 (50分)","declared_total":"50","computed_total":"2","mcq":None,
+        "questions":[{"label":"Q3","answer":[],"answer_content":[],"marks":None,"children":[
+            {"label":"(a)","answer":["柱頭呈羽狀"],"answer_content":[
+                {"kind":"paragraph","text":"柱頭呈羽狀","marks":"1","mark_raw":"(1分)"},
+            ],"marks":"1","children":[],"has_non_text_content":False},
+        ],"has_non_text_content":False}],"standalone_non_text":False}],
+    })
+    profile = RenderTemplateProfile(
+        school_name="", logo_asset_id=None,
+        config=_render_config("", "", ["{{school_name}}"]),
+        layout_blueprint=blueprint, source_docx=source,
+    )
+    result = render_answer_sheet(sheet, profile, DocumentMetadata(school_name="S",academic_year="2024",exam_name="E",level="L",subject="B",document_type="A"), {}, lambda _: b"")
+    assert result.docx is not None, result.validation
+    doc = Document(BytesIO(result.docx))
+    q3 = next(p for p in doc.paragraphs if p.text.startswith("Q3"))
+    assert q3.paragraph_format.keep_with_next is True
+
+
+def test_mcq_exact_content_survives_to_rendered_docx() -> None:
+    source = _source()
+    draft = import_template_docx(source)
+    blueprint = draft.layout_blueprint
+    blueprint["parent_totals_by_depth"]["0"] = False
+    mcq_pairs = [
+        (str(n), a)
+        for n, a in zip(range(1, 31), "ABCD" * 7 + "AB", strict=True)
+    ]
+    sheet = sheet_from_dict({
+        "title":"t","warnings":[],"asset_refs":[],
+        "sections":[{"title":"甲部 多項選擇題 (30分)","declared_total":"30","computed_total":None,
+        "mcq":mcq_pairs,"questions":[],"standalone_non_text":False}],
+    })
+    profile = RenderTemplateProfile(
+        school_name="", logo_asset_id=None,
+        config=_render_config("", "", ["{{school_name}}"]),
+        layout_blueprint=blueprint, source_docx=source,
+    )
+    result = render_answer_sheet(sheet, profile, DocumentMetadata(school_name="S",academic_year="2024",exam_name="E",level="L",subject="B",document_type="A"), {}, lambda _: b"")
+    assert result.docx is not None, result.validation
+    doc = Document(BytesIO(result.docx))
+    rendered: list[tuple[str, str]] = []
+    for table in doc.tables:
+        rows = table.rows
+        columns = len(rows[0].cells) // 2
+        row_count = len(rows) - 1
+        for row in range(row_count):
+            for column in range(columns):
+                index = row + column * row_count
+                if index >= len(mcq_pairs):
+                    continue
+                q = table.cell(row + 1, column * 2).text.strip()
+                a = table.cell(row + 1, column * 2 + 1).text.strip()
+                if q.isdigit() and a:
+                    rendered.append((q, a))
+    # Visual column-pair layout reorders rows; semantic order must survive.
+    assert len(rendered) == 30
+    assert sorted(rendered, key=lambda pair: int(pair[0])) == mcq_pairs
+
+
+def test_export_xml_has_separate_right_tab_mark_runs_per_marking_point() -> None:
+    # Export regression: two marking points -> two right-tab mark runs,
+    # NOT one aggregate "(2 marks)" line (H requirement).
+    source = _source()
+    draft = import_template_docx(source)
+    blueprint = draft.layout_blueprint
+    blueprint["parent_totals_by_depth"]["0"] = False
+    sheet = sheet_from_dict({
+        "title":"t","warnings":[],"asset_refs":[],
+        "sections":[{"title":"乙部 結構題 (50分)","declared_total":"50","computed_total":"2","mcq":None,
+        "questions":[{"label":"Q1","answer":[],"answer_content":[],"marks":None,"children":[
+            {"label":"(a)","answer":["二氧化碳","尿素"],"answer_content":[
+                {"kind":"paragraph","text":"二氧化碳","marks":"1","mark_raw":"(1分)"},
+                {"kind":"paragraph","text":"尿素","marks":"1","mark_raw":"(1分)"},
+            ],"marks":"2","children":[],"has_non_text_content":False},
+        ],"has_non_text_content":False}],"standalone_non_text":False}],
+    })
+    profile = RenderTemplateProfile(
+        school_name="", logo_asset_id=None,
+        config=_render_config("", "", ["{{school_name}}"]),
+        layout_blueprint=blueprint, source_docx=source,
+    )
+    result = render_answer_sheet(sheet, profile, DocumentMetadata(school_name="S",academic_year="2024",exam_name="E",level="L",subject="B",document_type="A"), {}, lambda _: b"")
+    assert result.docx is not None, result.validation
+    with ZipFile(BytesIO(result.docx)) as package:
+        xml = package.read("word/document.xml").decode()
+    import re as _re
+
+    marked_paragraphs = _re.findall(r"<w:p\b[^>]*>.*?</w:p>", xml, _re.DOTALL)
+    tab_mark = [
+        p
+        for p in marked_paragraphs
+        if "<w:tab/>" in p and "(1 marks)" in p and ("二氧化碳" in p or "尿素" in p)
+    ]
+    assert len(tab_mark) == 2
+    assert "(2 marks)" not in xml

@@ -7,6 +7,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from io import BytesIO
+from typing import Any
 from uuid import UUID
 
 from docx import Document
@@ -333,17 +334,87 @@ def _render_mcq(
                 )
 
 
+def _match_label_chain(
+    profile: RenderTemplateProfile, path_labels: list[str], depth: int
+) -> dict[str, object] | None:
+    """Chain evidence whose labels END with this node's label path (deepest win).
+
+    A chain captures a source line like ``sub\\tsubsub\\tanswer\\tmarks``. The
+    node owning the chain's head label suppresses its own label paragraph and
+    passes the chain labels down; the descendant at the chain's tail renders
+    all labels + first marked answer + marks on one logical line.
+    """
+    if not path_labels:
+        return None
+    chains = (
+        profile.layout_blueprint.get("label_chains", []) if profile.layout_blueprint else []
+    )
+    if not isinstance(chains, list):
+        return None
+    best: dict[str, object] | None = None
+    for chain in chains:
+        if not isinstance(chain, dict):
+            continue
+        labels = chain.get("labels")
+        if not isinstance(labels, list) or not labels:
+            continue
+        if labels != path_labels[-len(labels):]:
+            continue
+        chain_depth = int(str(chain.get("depth", 0)))
+        if chain_depth > depth + 1:
+            continue
+        if best is None or chain_depth > int(str(best.get("depth", 0))):
+            best = chain
+    return best
+
+
+def _chain_starting_at(
+    profile: RenderTemplateProfile, label: str
+) -> dict[str, object] | None:
+    """Chain whose FIRST label is ``label`` and which chains >1 label."""
+    chains = (
+        profile.layout_blueprint.get("label_chains", []) if profile.layout_blueprint else []
+    )
+    if not isinstance(chains, list):
+        return None
+    for chain in chains:
+        if not isinstance(chain, dict):
+            continue
+        labels = chain.get("labels")
+        if isinstance(labels, list) and len(labels) > 1 and labels[0] == label:
+            return chain
+    return None
+
+
 def _render_node(
     document: DocumentObject,
     node: AnsNode,
     depth: int,
     profile: RenderTemplateProfile,
     answer_assets: AnswerAssetResolver,
+    path_labels: list[str] | None = None,
+    chain_suppressed_labels: list[str] | None = None,
 ) -> None:
     layout = profile.config.answer_sheet_layout_json
+    path_labels = list(path_labels or [])
+    chain_suppressed_labels = list(chain_suppressed_labels or [])
+    if node.label:
+        path_labels.append(node.label)
+    layout_chain = _match_label_chain(profile, path_labels, depth)
+    # A node whose label starts a multi-label source chain is CHAINED onto its
+    # descendants' answer line: suppress this label paragraph, pass the chain on.
+    own_chain = _chain_starting_at(profile, node.label or "")
+    suppress_label = bool(own_chain) or (
+        node.label in chain_suppressed_labels and layout_chain is not None
+    )
     style = "QuestionBody" if depth == 0 else "QuestionSubpart"
     paragraph = document.add_paragraph(style=style)
-    paragraph.add_run(node.label or "?")
+    if suppress_label:
+        # Fully chained container or chained leaf: the label rides the
+        # descendant answer line; no placeholder paragraph remains.
+        document.element.body.remove(paragraph._p)
+    else:
+        paragraph.add_run(node.label or "?")
     roles = profile.layout_blueprint.get("paragraph_roles", {}) if profile.layout_blueprint else {}
     role = "root_question" if depth == 0 else ("sub_question" if depth == 1 else "sub_sub_question")
     role_blueprint = roles.get(role) if isinstance(roles, dict) else None
@@ -353,11 +424,18 @@ def _render_node(
         paragraph.paragraph_format.left_indent = Mm(depth * layout.hierarchy_indent_mm)
     content = list(_effective_content(node))
     first_content = content[0] if content else None
+    # Marking-point invariant: when any content block carries its own marks, the
+    # marks belong to those blocks (rendered at each block), NOT to the label.
+    block_marks_present = any(
+        not isinstance(item, UnsupportedAnswerContent) and item.marks is not None
+        for item in content
+    )
     if (
         not node.children
         and isinstance(role_blueprint, dict)
         and role_blueprint.get("answer_same_line")
         and isinstance(first_content, AnswerParagraph)
+        and first_content.marks is None
     ):
         content.pop(0)
         inline_run = paragraph.add_run("\t" + first_content.text)
@@ -385,7 +463,11 @@ def _render_node(
             if node.marks is not None
             else "(? marks)"
         )
-        if isinstance(role_blueprint, dict) and role_blueprint.get("marks_same_line"):
+        if block_marks_present or suppress_label:
+            # Per-block marking points own the mark runs; a chained label line
+            # never prints marks (they ride the answer block below).
+            pass
+        elif isinstance(role_blueprint, dict) and role_blueprint.get("marks_same_line"):
             marks_run = paragraph.add_run("\t" + marks)
             apply_run_blueprint(marks_run, role_blueprint)
         elif profile.config.question_style_config_json.marks_display == "inline":
@@ -400,12 +482,48 @@ def _render_node(
 
     for item in content:
         if isinstance(item, AnswerParagraph):
-            answer = document.add_paragraph(item.text, style="QuestionBody")
-            answer_blueprint = roles.get("answer_paragraph") if isinstance(roles, dict) else None
-            if isinstance(answer_blueprint, dict):
-                apply_paragraph_blueprint(answer, answer_blueprint)
+            item_marks = (
+                _format_marks(
+                    item.marks, profile.config.question_style_config_json.marks_format
+                )
+                if item.marks is not None
+                else None
+            )
+            same_line_marks = (
+                item.marks is not None
+                and not node.children
+                and isinstance(role_blueprint, dict)
+                and role_blueprint.get("marks_same_line")
+            )
+            answer = document.add_paragraph("", style="QuestionBody")
+            # Chain prefix: ancestor labels suppressed from their own paragraphs
+            # ride this answer line, separated by tabs (source chain evidence).
+            for chained_label in chain_suppressed_labels:
+                answer.add_run(chained_label + "\t")
+            answer.add_run(item.text)
+            if same_line_marks and item_marks is not None:
+                marks_run = answer.add_run("\t" + item_marks)
+                answer_blueprint = (
+                    roles.get("answer_paragraph") if isinstance(roles, dict) else None
+                )
+                if isinstance(answer_blueprint, dict):
+                    apply_paragraph_blueprint(answer, answer_blueprint)
+                    apply_run_blueprint(marks_run, answer_blueprint)
+                elif layout_chain is not None:
+                    apply_paragraph_blueprint(answer, layout_chain)
+                    apply_run_blueprint(marks_run, layout_chain)
             else:
-                answer.paragraph_format.left_indent = Mm((depth + 1) * layout.hierarchy_indent_mm)
+                if item_marks is not None:
+                    answer.add_run("  " + item_marks)
+                answer_blueprint = (
+                    roles.get("answer_paragraph") if isinstance(roles, dict) else None
+                )
+                if isinstance(answer_blueprint, dict):
+                    apply_paragraph_blueprint(answer, answer_blueprint)
+                else:
+                    answer.paragraph_format.left_indent = Mm(
+                        (depth + 1) * layout.hierarchy_indent_mm
+                    )
         elif isinstance(item, AnswerTable):
             _render_answer_table(document, item, profile)
         elif isinstance(item, AnswerImage):
@@ -418,8 +536,24 @@ def _render_node(
             image.add_run().add_picture(
                 BytesIO(answer_assets(item.local_id)), width=Mm(layout.image_max_width_mm)
             )
-    for child in node.children:
-        _render_node(document, child, depth + 1, profile, answer_assets)
+    if node.children:
+        # Decide what descendant labels get suppressed: when THIS node starts
+        # (or continues) a chain, its own label rides the descendant line.
+        def _chain_labels(chain: dict[str, Any] | None) -> list[str]:
+            labels = chain.get("labels") if isinstance(chain, dict) else None
+            return [str(lbl) for lbl in labels] if isinstance(labels, list) else []
+
+        if suppress_label and own_chain is not None:
+            suppressed = _chain_labels(own_chain)
+        elif suppress_label and layout_chain is not None:
+            suppressed = _chain_labels(layout_chain)
+        else:
+            suppressed = []
+        for child in node.children:
+            _render_node(
+                document, child, depth + 1, profile, answer_assets,
+                path_labels, suppressed,
+            )
 
 
 def _clear_source_content(document: DocumentObject) -> None:

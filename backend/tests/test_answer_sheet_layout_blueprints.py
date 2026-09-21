@@ -51,6 +51,11 @@ def _source_docx() -> bytes:
     sub.paragraph_format.tab_stops.add_tab_stop(Mm(160), WD_TAB_ALIGNMENT.RIGHT)
     sub.add_run("\t")
     sub.add_run("(2分)")
+    # A same-line chain line: sub label + subsub label + answer + marks, all on
+    # one logical line separated by tabs (Sample (C) hierarchy chaining).
+    chain = doc.add_paragraph("(b)\t(i)\t組織液源頭\t(1分)")
+    chain.paragraph_format.left_indent = Mm(10)
+    chain.paragraph_format.tab_stops.add_tab_stop(Mm(160), WD_TAB_ALIGNMENT.RIGHT)
     answer = doc.add_paragraph("source answer ignored")
     answer.paragraph_format.left_indent = Mm(12)
     answer.paragraph_format.space_after = Pt(0)
@@ -86,6 +91,12 @@ def test_import_captures_content_free_ooxml_blueprints() -> None:
     assert draft.layout_blueprint["parent_totals_by_depth"]["0"] is True
     assert draft.layout_blueprint["tables"]["mcq"]["tblGrid"]
     assert draft.layout_blueprint["tables"]["answer_table"]["tblGrid"]
+    # Same-line label chain evidence: sub(+subsub)+answer+marks on one line.
+    chains = draft.layout_blueprint["label_chains"]
+    assert any(entry["depth"] == 2 for entry in chains)  # sub + subsub chained
+    assert any(entry["sub"] == "(b)" and entry["subsub"] == "(i)" for entry in chains)
+    # Chain blueprints are content-free: no source answer text retained.
+    assert "組織液源頭" not in str(draft.layout_blueprint)
 
 
 def test_blueprint_is_deeply_immutable_from_later_document_mutation() -> None:
