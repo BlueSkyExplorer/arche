@@ -378,26 +378,11 @@ def render_answer_sheet(
             )
 
     for answer_section in sheet.sections:
-        heading = answer_section.title
-        computed = answer_section.computed_total()
-        if (
-            answer_section.declared_total is not None
-            and computed is not None
-            and answer_section.declared_total != computed
-        ):
-            heading += f"  [declared {answer_section.declared_total} / computed {computed}]"
-        document.add_paragraph(heading, style="SectionHeading")
+        document.add_paragraph(answer_section.title, style="SectionHeading")
         if answer_section.mcq:
             _render_mcq(document, answer_section.mcq, profile)
         for question in answer_section.questions:
             _render_node(document, question, 0, profile, answer_assets.__getitem__)
-
-    if sheet.warnings:
-        document.add_paragraph("Validation warnings / 驗證警告", style="SectionHeading")
-        for warning in sheet.warnings:
-            document.add_paragraph(
-                f"[{warning.code}] {warning.message}", style="QuestionBody"
-            )
 
     output = BytesIO()
     document.save(output)

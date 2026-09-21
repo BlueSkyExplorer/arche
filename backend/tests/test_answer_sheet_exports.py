@@ -227,7 +227,14 @@ def test_completed_answer_sheet_preview_and_export_are_lossless(
     assert "REVIEWED ANSWER" in text
     assert "nested answer" in text
     assert "ORIGINAL EXTRACTED" not in text
-    assert "declared 50 / computed 51" in text
+    # formal DOCX stays source-facing: no audit annotation or warning appendix
+    assert "乙部 結構題 (50分)" in text
+    assert "declared 50 / computed 51" not in text
+    assert "Validation warnings" not in text
+    assert "驗證警告" not in text
+    # …but the mismatch fingerprint is still preserved on the export record
+    codes = [issue["code"] for issue in exported["validation_json"]["issues"]]
+    assert "declared_total_mismatch" in codes
     assert "構造" in table_text and "風媒花" in table_text and "蟲媒花" in table_text
     assert sum(value in table_text for value in ("1", "15", "16", "30")) == 4
     with zipfile.ZipFile(io.BytesIO(download.content)) as package:
