@@ -6,7 +6,7 @@ import path from "node:path";
 // approve → completed → format → preview → export DOCX. Drives the real UI and
 // complements the deterministic render/export checks in the backend suite.
 
-const API_URL = "http://localhost:8000";
+const API_URL = process.env.PLAYWRIGHT_API_URL ?? "http://localhost:8000";
 const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 const templateName = `E2E AS Template ${suffix}`;
 const asFileName = `ans-${suffix}.docx`;

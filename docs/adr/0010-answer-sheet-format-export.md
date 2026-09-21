@@ -26,8 +26,15 @@ OCR and inferred replacement content are forbidden.
 ## Rendering and validation
 
 The renderer accepts the reviewed answer-sheet snapshot, an immutable template
-configuration/version snapshot, and per-document `DocumentMetadata`. Metadata
-values remain per document. Template metadata/header/footer strings may use the
+configuration/version snapshot, its immutable source DOCX artifact reference
+(SHA-256 verified when loaded), content-free source-derived OOXML layout
+blueprints, and per-document `DocumentMetadata`. The source DOCX is never text
+replaced: renderer starts from its package to preserve styles, section/page
+setup, headers/footers, and other document primitives, clears source content,
+and injects only the reviewed semantic tree. Blueprints retain no teacher
+answer text; they carry only paragraph/run/table primitives (`pPr`, `rPr`,
+tabs, indents, spacing, alignment, `tblPr`, `tblGrid`, row/cell properties).
+Metadata values remain per document. Template metadata/header/footer strings may use the
 validated placeholders `school_name`, `academic_year`, `exam_name`, `level`,
 `subject`, and `document_type`. Additive answer-sheet layout settings control
 MCQ columns, hierarchy indentation/parent totals, image width, and table header

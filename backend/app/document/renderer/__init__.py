@@ -86,6 +86,8 @@ class RenderTemplateProfile(RenderModel):
     school_name: str = ""
     logo_asset_id: UUID | None = None
     config: TemplateProfileConfig
+    layout_blueprint: dict[str, object] = Field(default_factory=dict)
+    source_docx: bytes | None = None
 
 
 AssetResolver = Callable[[UUID], bytes]

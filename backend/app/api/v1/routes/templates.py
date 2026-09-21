@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import CurrentUser
 from app.core.config import Settings, get_settings
 from app.core.deps import get_current_user, get_db
+from app.core.storage import LocalDirStorage
 from app.schemas.template_profile import (
     TemplateProfileCreate,
     TemplateProfilePatch,
@@ -31,8 +32,13 @@ def template_list(current_user: User, db: Db) -> list[TemplateProfileRead]:
 
 
 @router.post("", response_model=TemplateProfileRead, status_code=201)
-def template_create(data: TemplateProfileCreate, current_user: User, db: Db) -> TemplateProfileRead:
-    return TemplateProfileRead.model_validate(templates.create_template(db, current_user, data))
+def template_create(
+    data: TemplateProfileCreate, current_user: User, db: Db, settings: SettingsDep
+) -> TemplateProfileRead:
+    storage = LocalDirStorage(settings.storage_local_dir)
+    return TemplateProfileRead.model_validate(
+        templates.create_template(db, current_user, data, storage)
+    )
 
 
 @router.post("/import", response_model=TemplateImportDraft)

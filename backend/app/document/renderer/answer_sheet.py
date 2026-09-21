@@ -7,6 +7,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from io import BytesIO
+from typing import Any
 from uuid import UUID
 
 from docx import Document
@@ -19,6 +20,12 @@ from docx.shared import Mm, Pt
 from docx.table import _Cell
 
 from app.document.ooxml import append_page_number, normalize_zip_timestamps, set_table_borders
+from app.document.ooxml.layout_blueprints import (
+    apply_paragraph_blueprint,
+    apply_run_blueprint,
+    apply_table_blueprint,
+    table_cell_blueprint,
+)
 from app.document.renderer import RenderTemplateProfile, _configure_styles, _format_marks
 from app.exam.extraction.answer_sheet import (
     AnsNode,
@@ -195,6 +202,14 @@ def _style_cell(
             run.font.size = Pt(font_size_pt)
 
 
+def _set_blueprint_cell_text(cell: _Cell, value: str, blueprint: dict[str, object]) -> None:
+    """Replace only text while retaining the source cell paragraph geometry."""
+    paragraph = cell.paragraphs[0]
+    paragraph.clear()
+    paragraph.add_run(value)
+    apply_paragraph_blueprint(paragraph, blueprint)
+
+
 def _render_answer_table(
     document: DocumentObject,
     content: AnswerTable,
@@ -203,19 +218,32 @@ def _render_answer_table(
     layout = profile.config.answer_sheet_layout_json
     columns = max(len(row) for row in content.rows)
     table = document.add_table(rows=len(content.rows), cols=columns)
-    table.autofit = True
-    if layout.answer_table_borders:
-        set_table_borders(table)
+    tables = profile.layout_blueprint.get("tables", {}) if profile.layout_blueprint else {}
+    blueprint = tables.get("answer_table") if isinstance(tables, dict) else None
+    if isinstance(blueprint, dict):
+        apply_table_blueprint(table, blueprint)
+    else:
+        table.autofit = True
+        if layout.answer_table_borders:
+            set_table_borders(table)
     for row_index, values in enumerate(content.rows):
         for column_index in range(columns):
             cell = table.cell(row_index, column_index)
-            cell.text = values[column_index] if column_index < len(values) else ""
-            _style_cell(
-                cell,
-                alignment=layout.answer_table_alignment,
-                font_size_pt=layout.answer_table_font_size_pt,
-            )
-    if layout.repeat_table_header and table.rows:
+            value = values[column_index] if column_index < len(values) else ""
+            if isinstance(blueprint, dict):
+                cell_blueprint = table_cell_blueprint(blueprint, row_index, column_index)
+                if cell_blueprint is not None:
+                    _set_blueprint_cell_text(cell, value, cell_blueprint)
+                else:
+                    cell.text = value
+            else:
+                cell.text = value
+                _style_cell(
+                    cell,
+                    alignment=layout.answer_table_alignment,
+                    font_size_pt=layout.answer_table_font_size_pt,
+                )
+    if not isinstance(blueprint, dict) and layout.repeat_table_header and table.rows:
         _repeat_header(table.rows[0])
 
 
@@ -228,39 +256,34 @@ def _render_mcq(
     columns = layout.mcq_columns
     row_count = math.ceil(len(items) / columns)
     table = document.add_table(rows=row_count + 1, cols=columns * 2)
-    table.autofit = False
-    if layout.mcq_borders:
-        set_table_borders(table)
-    for row in table.rows:
-        row.height = Mm(layout.mcq_row_height_mm)
-        row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+    tables = profile.layout_blueprint.get("tables", {}) if profile.layout_blueprint else {}
+    blueprint = tables.get("mcq") if isinstance(tables, dict) else None
+    if isinstance(blueprint, dict):
+        apply_table_blueprint(table, blueprint)
+    else:
+        table.autofit = False
+        if layout.mcq_borders:
+            set_table_borders(table)
+        for row in table.rows:
+            row.height = Mm(layout.mcq_row_height_mm)
+            row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
     for column in range(columns):
         question = table.cell(0, column * 2)
         answer = table.cell(0, column * 2 + 1)
-        question.text = "題號"
-        answer.text = "答案"
-        _style_cell(
-            question,
-            alignment=layout.mcq_alignment,
-            font_size_pt=layout.mcq_font_size_pt,
-            width_mm=layout.mcq_question_width_mm,
-        )
-        _style_cell(
-            answer,
-            alignment=layout.mcq_alignment,
-            font_size_pt=layout.mcq_font_size_pt,
-            width_mm=layout.mcq_answer_width_mm,
-        )
-    _repeat_header(table.rows[0])
-    for row in range(row_count):
-        for column in range(columns):
-            index = row + column * row_count
-            if index >= len(items):
-                continue
-            question = table.cell(row + 1, column * 2)
-            answer = table.cell(row + 1, column * 2 + 1)
-            question.text = items[index][0]
-            answer.text = items[index][1]
+        if isinstance(blueprint, dict):
+            question_blueprint = table_cell_blueprint(blueprint, 0, column * 2)
+            answer_blueprint = table_cell_blueprint(blueprint, 0, column * 2 + 1)
+            if question_blueprint is not None:
+                _set_blueprint_cell_text(question, "題號", question_blueprint)
+            else:
+                question.text = "題號"
+            if answer_blueprint is not None:
+                _set_blueprint_cell_text(answer, "答案", answer_blueprint)
+            else:
+                answer.text = "答案"
+        else:
+            question.text = "題號"
+            answer.text = "答案"
             _style_cell(
                 question,
                 alignment=layout.mcq_alignment,
@@ -273,6 +296,94 @@ def _render_mcq(
                 font_size_pt=layout.mcq_font_size_pt,
                 width_mm=layout.mcq_answer_width_mm,
             )
+    if not isinstance(blueprint, dict):
+        _repeat_header(table.rows[0])
+    for row in range(row_count):
+        for column in range(columns):
+            index = row + column * row_count
+            if index >= len(items):
+                continue
+            question = table.cell(row + 1, column * 2)
+            answer = table.cell(row + 1, column * 2 + 1)
+            value_question, value_answer = items[index]
+            if isinstance(blueprint, dict):
+                question_blueprint = table_cell_blueprint(blueprint, row + 1, column * 2)
+                answer_blueprint = table_cell_blueprint(blueprint, row + 1, column * 2 + 1)
+                if question_blueprint is not None:
+                    _set_blueprint_cell_text(question, value_question, question_blueprint)
+                else:
+                    question.text = value_question
+                if answer_blueprint is not None:
+                    _set_blueprint_cell_text(answer, value_answer, answer_blueprint)
+                else:
+                    answer.text = value_answer
+            else:
+                question.text = value_question
+                answer.text = value_answer
+                _style_cell(
+                    question,
+                    alignment=layout.mcq_alignment,
+                    font_size_pt=layout.mcq_font_size_pt,
+                    width_mm=layout.mcq_question_width_mm,
+                )
+                _style_cell(
+                    answer,
+                    alignment=layout.mcq_alignment,
+                    font_size_pt=layout.mcq_font_size_pt,
+                    width_mm=layout.mcq_answer_width_mm,
+                )
+
+
+def _match_label_chain(
+    profile: RenderTemplateProfile, path_labels: list[str], depth: int
+) -> dict[str, object] | None:
+    """Chain evidence whose labels END with this node's label path (deepest win).
+
+    A chain captures a source line like ``sub\\tsubsub\\tanswer\\tmarks``. The
+    node owning the chain's head label suppresses its own label paragraph and
+    passes the chain labels down; the descendant at the chain's tail renders
+    all labels + first marked answer + marks on one logical line.
+    """
+    if not path_labels:
+        return None
+    chains = (
+        profile.layout_blueprint.get("label_chains", []) if profile.layout_blueprint else []
+    )
+    if not isinstance(chains, list):
+        return None
+    best: dict[str, object] | None = None
+    for chain in chains:
+        if not isinstance(chain, dict):
+            continue
+        labels = chain.get("labels")
+        if not isinstance(labels, list) or not labels:
+            continue
+        if labels != path_labels[-len(labels):]:
+            continue
+        chain_depth = int(str(chain.get("depth", 0)))
+        if chain_depth > depth + 1:
+            continue
+        if best is None or chain_depth > int(str(best.get("depth", 0))):
+            best = chain
+    return best
+
+
+def _chain_starting_at(
+    profile: RenderTemplateProfile, label: str
+) -> dict[str, object] | None:
+    """Chain whose FIRST label is ``label`` and which chains >1 label."""
+    chains = (
+        profile.layout_blueprint.get("label_chains", []) if profile.layout_blueprint else []
+    )
+    if not isinstance(chains, list):
+        return None
+    for chain in chains:
+        if not isinstance(chain, dict):
+            continue
+        labels = chain.get("labels")
+        if isinstance(labels, list) and len(labels) > 1 and labels[0] == label:
+            return chain
+    return None
 
 
 def _render_node(
@@ -281,15 +392,65 @@ def _render_node(
     depth: int,
     profile: RenderTemplateProfile,
     answer_assets: AnswerAssetResolver,
+    path_labels: list[str] | None = None,
+    chain_suppressed_labels: list[str] | None = None,
 ) -> None:
     layout = profile.config.answer_sheet_layout_json
+    path_labels = list(path_labels or [])
+    chain_suppressed_labels = list(chain_suppressed_labels or [])
+    if node.label:
+        path_labels.append(node.label)
+    layout_chain = _match_label_chain(profile, path_labels, depth)
+    # A node whose label starts a multi-label source chain is CHAINED onto its
+    # descendants' answer line: suppress this label paragraph, pass the chain on.
+    own_chain = _chain_starting_at(profile, node.label or "")
+    suppress_label = bool(own_chain) or (
+        node.label in chain_suppressed_labels and layout_chain is not None
+    )
     style = "QuestionBody" if depth == 0 else "QuestionSubpart"
     paragraph = document.add_paragraph(style=style)
-    paragraph.paragraph_format.left_indent = Mm(depth * layout.hierarchy_indent_mm)
-    paragraph.add_run(node.label or "?")
+    if suppress_label:
+        # Fully chained container or chained leaf: the label rides the
+        # descendant answer line; no placeholder paragraph remains.
+        document.element.body.remove(paragraph._p)
+    else:
+        paragraph.add_run(node.label or "?")
+    roles = profile.layout_blueprint.get("paragraph_roles", {}) if profile.layout_blueprint else {}
+    role = "root_question" if depth == 0 else ("sub_question" if depth == 1 else "sub_sub_question")
+    role_blueprint = roles.get(role) if isinstance(roles, dict) else None
+    if isinstance(role_blueprint, dict):
+        apply_paragraph_blueprint(paragraph, role_blueprint)
+    else:
+        paragraph.paragraph_format.left_indent = Mm(depth * layout.hierarchy_indent_mm)
+    content = list(_effective_content(node))
+    first_content = content[0] if content else None
+    # Marking-point invariant: when any content block carries its own marks, the
+    # marks belong to those blocks (rendered at each block), NOT to the label.
+    block_marks_present = any(
+        not isinstance(item, UnsupportedAnswerContent) and item.marks is not None
+        for item in content
+    )
+    if (
+        not node.children
+        and isinstance(role_blueprint, dict)
+        and role_blueprint.get("answer_same_line")
+        and isinstance(first_content, AnswerParagraph)
+        and first_content.marks is None
+    ):
+        content.pop(0)
+        inline_run = paragraph.add_run("\t" + first_content.text)
+        apply_run_blueprint(inline_run, role_blueprint)
     if node.children:
         total = node.total()
-        if layout.show_parent_totals and total is not None:
+        show_parent_totals = layout.show_parent_totals
+        source_parent_totals = (
+            profile.layout_blueprint.get("parent_totals_by_depth", {})
+            if profile.layout_blueprint
+            else {}
+        )
+        if isinstance(source_parent_totals, dict):
+            show_parent_totals = bool(source_parent_totals.get(str(depth), False))
+        if show_parent_totals and total is not None:
             paragraph.add_run(
                 "  "
                 + _format_marks(
@@ -302,31 +463,111 @@ def _render_node(
             if node.marks is not None
             else "(? marks)"
         )
-        if profile.config.question_style_config_json.marks_display == "inline":
+        if block_marks_present or suppress_label:
+            # Per-block marking points own the mark runs; a chained label line
+            # never prints marks (they ride the answer block below).
+            pass
+        elif isinstance(role_blueprint, dict) and role_blueprint.get("marks_same_line"):
+            marks_run = paragraph.add_run("\t" + marks)
+            apply_run_blueprint(marks_run, role_blueprint)
+        elif profile.config.question_style_config_json.marks_display == "inline":
             paragraph.add_run(f"  {marks}")
         else:
             marks_paragraph = document.add_paragraph(marks, style="QuestionMarks")
+            marks_blueprint = roles.get("marks") if isinstance(roles, dict) else None
+            if isinstance(marks_blueprint, dict):
+                apply_paragraph_blueprint(marks_paragraph, marks_blueprint)
             if profile.config.question_style_config_json.marks_display == "below":
                 marks_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-    for item in _effective_content(node):
+    for item in content:
         if isinstance(item, AnswerParagraph):
-            answer = document.add_paragraph(item.text, style="QuestionBody")
-            answer.paragraph_format.left_indent = Mm(
-                (depth + 1) * layout.hierarchy_indent_mm
+            item_marks = (
+                _format_marks(
+                    item.marks, profile.config.question_style_config_json.marks_format
+                )
+                if item.marks is not None
+                else None
             )
+            same_line_marks = (
+                item.marks is not None
+                and not node.children
+                and isinstance(role_blueprint, dict)
+                and role_blueprint.get("marks_same_line")
+            )
+            answer = document.add_paragraph("", style="QuestionBody")
+            # Chain prefix: ancestor labels suppressed from their own paragraphs
+            # ride this answer line, separated by tabs (source chain evidence).
+            for chained_label in chain_suppressed_labels:
+                answer.add_run(chained_label + "\t")
+            answer.add_run(item.text)
+            if same_line_marks and item_marks is not None:
+                marks_run = answer.add_run("\t" + item_marks)
+                answer_blueprint = (
+                    roles.get("answer_paragraph") if isinstance(roles, dict) else None
+                )
+                if isinstance(answer_blueprint, dict):
+                    apply_paragraph_blueprint(answer, answer_blueprint)
+                    apply_run_blueprint(marks_run, answer_blueprint)
+                elif layout_chain is not None:
+                    apply_paragraph_blueprint(answer, layout_chain)
+                    apply_run_blueprint(marks_run, layout_chain)
+            else:
+                if item_marks is not None:
+                    answer.add_run("  " + item_marks)
+                answer_blueprint = (
+                    roles.get("answer_paragraph") if isinstance(roles, dict) else None
+                )
+                if isinstance(answer_blueprint, dict):
+                    apply_paragraph_blueprint(answer, answer_blueprint)
+                else:
+                    answer.paragraph_format.left_indent = Mm(
+                        (depth + 1) * layout.hierarchy_indent_mm
+                    )
         elif isinstance(item, AnswerTable):
             _render_answer_table(document, item, profile)
         elif isinstance(item, AnswerImage):
             image = document.add_paragraph(style="QuestionBody")
-            image.paragraph_format.left_indent = Mm(
-                (depth + 1) * layout.hierarchy_indent_mm
-            )
+            image_blueprint = roles.get("image_paragraph") if isinstance(roles, dict) else None
+            if isinstance(image_blueprint, dict):
+                apply_paragraph_blueprint(image, image_blueprint)
+            else:
+                image.paragraph_format.left_indent = Mm((depth + 1) * layout.hierarchy_indent_mm)
             image.add_run().add_picture(
                 BytesIO(answer_assets(item.local_id)), width=Mm(layout.image_max_width_mm)
             )
-    for child in node.children:
-        _render_node(document, child, depth + 1, profile, answer_assets)
+    if node.children:
+        # Decide what descendant labels get suppressed: when THIS node starts
+        # (or continues) a chain, its own label rides the descendant line.
+        def _chain_labels(chain: dict[str, Any] | None) -> list[str]:
+            labels = chain.get("labels") if isinstance(chain, dict) else None
+            return [str(lbl) for lbl in labels] if isinstance(labels, list) else []
+
+        if suppress_label and own_chain is not None:
+            suppressed = _chain_labels(own_chain)
+        elif suppress_label and layout_chain is not None:
+            suppressed = _chain_labels(layout_chain)
+        else:
+            suppressed = []
+        for child in node.children:
+            _render_node(
+                document, child, depth + 1, profile, answer_assets,
+                path_labels, suppressed,
+            )
+
+
+def _clear_source_content(document: DocumentObject) -> None:
+    """Retain source package styles/sections but never retain source answer text."""
+    body = document._element.body
+    for child in list(body):
+        if child.tag != qn("w:sectPr"):
+            body.remove(child)
+    for section in document.sections:
+        for story in (section.header, section.footer):
+            element = story._element
+            for child in list(element):
+                element.remove(child)
+            element.append(OxmlElement("w:p"))
 
 
 def render_answer_sheet(
@@ -340,45 +581,70 @@ def render_answer_sheet(
     if not validation["valid"]:
         return AnswerSheetRenderResult(docx=None, validation=validation)
 
-    document = Document()
+    document = Document(BytesIO(profile.source_docx)) if profile.source_docx else Document()
+    if profile.source_docx:
+        _clear_source_content(document)
     _configure_styles(document, profile.config)
     section = document.sections[0]
     page = profile.config.page_config_json
-    if page.size == "A4":
-        section.page_width, section.page_height = Mm(210), Mm(297)
-    else:
-        section.page_width, section.page_height = Mm(215.9), Mm(279.4)
-    section.top_margin = Mm(page.margin_top_mm)
-    section.right_margin = Mm(page.margin_right_mm)
-    section.bottom_margin = Mm(page.margin_bottom_mm)
-    section.left_margin = Mm(page.margin_left_mm)
+    if not profile.source_docx:
+        if page.size == "A4":
+            section.page_width, section.page_height = Mm(210), Mm(297)
+        else:
+            section.page_width, section.page_height = Mm(215.9), Mm(279.4)
+        section.top_margin = Mm(page.margin_top_mm)
+        section.right_margin = Mm(page.margin_right_mm)
+        section.bottom_margin = Mm(page.margin_bottom_mm)
+        section.left_margin = Mm(page.margin_left_mm)
 
+    roles = profile.layout_blueprint.get("paragraph_roles", {}) if profile.layout_blueprint else {}
+    if not isinstance(roles, dict):
+        roles = {}
     header = section.header.paragraphs[0]
     header.style = "PaperMetadata"
-    if profile.logo_asset_id is not None:
-        header.add_run().add_picture(BytesIO(logo_assets(profile.logo_asset_id)), width=Mm(20))
     header_text = _substitute(profile.config.header_config_json.text, metadata)
     if header_text:
         header.add_run(header_text)
+    header_blueprint = roles.get("header")
+    if isinstance(header_blueprint, dict):
+        apply_paragraph_blueprint(header, header_blueprint)
+    if profile.logo_asset_id is not None:
+        header.add_run().add_picture(BytesIO(logo_assets(profile.logo_asset_id)), width=Mm(20))
     footer = section.footer.paragraphs[0]
     footer.style = "PaperMetadata"
     footer_text = _substitute(profile.config.footer_config_json.text, metadata)
-    footer.add_run(footer_text)
+    if footer_text:
+        footer.add_run(footer_text)
+    footer_blueprint = roles.get("footer")
+    if isinstance(footer_blueprint, dict):
+        apply_paragraph_blueprint(footer, footer_blueprint)
     if profile.config.footer_config_json.page_numbering:
         if footer_text:
             footer.add_run("  ")
         append_page_number(footer)
 
-    for line in profile.config.answer_sheet_layout_json.metadata_lines:
+    metadata_blueprints = profile.layout_blueprint.get("metadata_paragraphs", [])
+    for index, line in enumerate(profile.config.answer_sheet_layout_json.metadata_lines):
         value = _substitute(line, metadata)
-        if value:
-            document.add_paragraph(
-                value,
-                style="PaperTitle" if not document.paragraphs else "PaperMetadata",
-            )
+        if not value:
+            continue
+        paragraph = document.add_paragraph(
+            value,
+            style="PaperTitle" if not document.paragraphs else "PaperMetadata",
+        )
+        metadata_blueprint = (
+            metadata_blueprints[min(index, len(metadata_blueprints) - 1)]
+            if isinstance(metadata_blueprints, list) and metadata_blueprints
+            else roles.get("metadata")
+        )
+        if isinstance(metadata_blueprint, dict):
+            apply_paragraph_blueprint(paragraph, metadata_blueprint)
 
+    section_blueprint = roles.get("section_heading")
     for answer_section in sheet.sections:
-        document.add_paragraph(answer_section.title, style="SectionHeading")
+        section_paragraph = document.add_paragraph(answer_section.title, style="SectionHeading")
+        if isinstance(section_blueprint, dict):
+            apply_paragraph_blueprint(section_paragraph, section_blueprint)
         if answer_section.mcq:
             _render_mcq(document, answer_section.mcq, profile)
         for question in answer_section.questions:

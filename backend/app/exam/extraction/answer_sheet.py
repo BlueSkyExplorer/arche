@@ -30,13 +30,20 @@ from app.exam.parsing.blocks import BlockKind, DocumentBlock, ParseResult
 
 @dataclass(frozen=True)
 class AnswerParagraph:
+    """One answer paragraph. ``marks``/``mark_raw`` preserve source marking-point
+    evidence attached to this exact block (additive; legacy rows carry None)."""
+
     text: str
+    marks: Decimal | None = None
+    mark_raw: str | None = None
     kind: str = field(default="paragraph", init=False)
 
 
 @dataclass(frozen=True)
 class AnswerTable:
     rows: list[list[str]]
+    marks: Decimal | None = None
+    mark_raw: str | None = None
     kind: str = field(default="table", init=False)
 
 
@@ -44,6 +51,8 @@ class AnswerTable:
 class AnswerImage:
     local_id: str
     mime_type: str | None = None
+    marks: Decimal | None = None
+    mark_raw: str | None = None
     kind: str = field(default="image", init=False)
 
 
@@ -72,9 +81,26 @@ class AnsNode:
     children: list[AnsNode] = field(default_factory=list)
     has_non_text_content: bool = False
 
+    def effective_marks(self) -> Decimal | None:
+        """Marks invariant: content-level marking points win when present.
+
+        - Leaf with content-level marks -> sum of per-block marks.
+        - No content-level marks -> legacy ``node.marks`` (backward compatible).
+        - Both present and disagreeing -> the two values are kept separate; a
+          ``marking_point_total_mismatch`` warning must be emitted elsewhere.
+        """
+        block_marks = [
+            item.marks
+            for item in self.answer_content
+            if not isinstance(item, UnsupportedAnswerContent) and item.marks is not None
+        ]
+        if block_marks:
+            return sum(block_marks, Decimal(0))
+        return self.marks
+
     def total(self) -> Decimal | None:
         if not self.children:
-            return self.marks
+            return self.effective_marks()
         vals = [c.total() for c in self.children]
         if any(v is None for v in vals):
             return None
@@ -170,6 +196,29 @@ def parse_marks(text: str) -> Decimal | None:
         found = True
         total += Decimal(m.group(1))
     return total if found else None
+
+
+_MARK_PAREN_FULL = re.compile(
+    r"[(（]\s*(\d+(?:\.\d+)?)\s*分\s*[)）](?:\s*[x×]\s*(\d+))?"
+)
+
+
+def extract_mark_raw(text: str) -> str | None:
+    """First source mark token verbatim, e.g. ``(1分)`` or ``(1分)x3``."""
+    m = _MARK_PAREN_FULL.search(text)
+    if m:
+        # include a trailing x-multiplier even if the regex consumed it already
+        return m.group(0).strip()
+    m = _MARK_COMMA.search(text)
+    if m:
+        return m.group(0).strip()
+    m = _MARK_PAREN_NUM.search(text)
+    if m:
+        return m.group(0).strip()
+    m = _MARK_BARE.search(_PAREN_ANY.sub(" ", text))
+    if m:
+        return m.group(0).strip()
+    return None
 
 
 def strip_marks(text: str) -> str:
@@ -288,10 +337,15 @@ def parse_question_table(table: DocumentBlock) -> tuple[str, list[Leaf]] | None:
         lines = [ln.strip() for ln in content.split("\n")] if content else []
         lines = [ln for ln in lines if ln]
         typed: list[AnswerContent] = []
+        marks = parse_marks(marks_s)
         for item in table.meta.get("cell_content", {}).get(f"{r_idx}:3", []):
             if item.get("kind") == "table":
                 typed.append(
-                    AnswerTable(rows=[[str(cell) for cell in row] for row in item.get("rows", [])])
+                    AnswerTable(
+                        rows=[[str(cell) for cell in row] for row in item.get("rows", [])],
+                        marks=marks,
+                        mark_raw=marks_s.strip() or None,
+                    )
                 )
             elif item.get("kind") == "paragraph" and item.get("text"):
                 for paragraph in str(item["text"]).split("\n"):
@@ -304,12 +358,26 @@ def parse_question_table(table: DocumentBlock) -> tuple[str, list[Leaf]] | None:
                     mime_type=asset.get("mime_type"),
                 )
             )
-        marks = parse_marks(marks_s)
         non_text = f"{r_idx}:3" in non_text_cells
         if non_text and not any(isinstance(item, AnswerImage) for item in typed):
             typed.append(UnsupportedAnswerContent(reason=non_text_cells[f"{r_idx}:3"]))
         if not typed:
             typed = [AnswerParagraph(line) for line in lines]
+        # Attach the row's own mark evidence to plain paragraph blocks that do
+        # not already carry marking-point evidence (multi-line cell fallback).
+        if marks is not None:
+            plain = [t for t in typed if isinstance(t, AnswerParagraph) and t.marks is None]
+            if plain:
+                per = marks / Decimal(len(plain)) if len(plain) > 1 else marks
+                raw = marks_s.strip() or None
+                typed = [
+                    (
+                        AnswerParagraph(t.text, marks=per, mark_raw=raw)
+                        if (isinstance(t, AnswerParagraph) and t.marks is None)
+                        else t
+                    )
+                    for t in typed
+                ]
         if lines or typed or marks is not None or non_text:
             leaves.append((path, lines, typed, marks, non_text))
     if q_label is None:
@@ -369,12 +437,19 @@ def _text_to_tree(blocks: list[DocumentBlock]) -> list[AnsNode]:
                     clean_rest = strip_marks(rest)
                     if clean_rest:
                         node.answer.append(clean_rest)
-                        node.answer_content.append(AnswerParagraph(clean_rest))
+                        node.answer_content.append(
+                            AnswerParagraph(
+                                clean_rest,
+                                marks=parse_marks(rest),
+                                mark_raw=extract_mark_raw(rest),
+                            )
+                        )
                 m = parse_marks(rest)
                 if m is not None:
                     node.marks = (node.marks or Decimal(0)) + m
             continue
         marks = parse_marks(rest)
+        raw = extract_mark_raw(rest)
         clean = strip_marks(rest)
         for idx, lbl in enumerate(labels):
             rank = label_rank(lbl)
@@ -384,7 +459,9 @@ def _text_to_tree(blocks: list[DocumentBlock]) -> list[AnsNode]:
             if idx == len(labels) - 1:
                 if clean:
                     node.answer.append(clean)
-                    node.answer_content.append(AnswerParagraph(clean))
+                    node.answer_content.append(
+                        AnswerParagraph(clean, marks=marks, mark_raw=raw)
+                    )
                 if marks is not None:
                     node.marks = marks
             if stack:
@@ -515,6 +592,39 @@ def compute_warnings(sheet: AnsSheet) -> None:
                     section=sec.title,
                 )
             )
+        # marking-point invariant audit: content-level sums vs legacy node.marks.
+        # Both values are preserved; a disagreement is visible, never corrected.
+        stack = list(sec.questions)
+        while stack:
+            node = stack.pop()
+            stack.extend(node.children)
+            block_total = sum(
+                (
+                    item.marks
+                    for item in node.answer_content
+                    if not isinstance(item, UnsupportedAnswerContent)
+                    and item.marks is not None
+                ),
+                Decimal(0),
+            )
+            if (
+                block_total
+                and node.marks is not None
+                and block_total != node.marks
+            ):
+                sheet.warnings.append(
+                    AnsWarning(
+                        code="marking_point_total_mismatch",
+                        message=(
+                            f"content-level marking points sum to {block_total} but "
+                            f"legacy node marks are {node.marks}"
+                        ),
+                        section=sec.title,
+                        path=node.label,
+                        declared=block_total,
+                        computed=node.marks,
+                    )
+                )
 
 
 # --- render -----------------------------------------------------------------
@@ -596,14 +706,26 @@ def node_from_dict(d: dict) -> AnsNode:
 
 def answer_content_to_dict(item: AnswerContent) -> dict:
     if isinstance(item, AnswerParagraph):
-        return {"kind": item.kind, "text": item.text}
+        return {
+            "kind": item.kind,
+            "text": item.text,
+            "marks": _dec(item.marks),
+            "mark_raw": item.mark_raw,
+        }
     if isinstance(item, AnswerTable):
-        return {"kind": item.kind, "rows": item.rows}
+        return {
+            "kind": item.kind,
+            "rows": item.rows,
+            "marks": _dec(item.marks),
+            "mark_raw": item.mark_raw,
+        }
     if isinstance(item, AnswerImage):
         return {
             "kind": item.kind,
             "local_id": item.local_id,
             "mime_type": item.mime_type,
+            "marks": _dec(item.marks),
+            "mark_raw": item.mark_raw,
         }
     return {"kind": item.kind, "reason": item.reason}
 
@@ -611,14 +733,23 @@ def answer_content_to_dict(item: AnswerContent) -> dict:
 def answer_content_from_dict(value: dict) -> AnswerContent:
     kind = value.get("kind")
     if kind == "paragraph":
-        return AnswerParagraph(text=str(value.get("text", "")))
+        return AnswerParagraph(
+            text=str(value.get("text", "")),
+            marks=_to_dec(value.get("marks")),
+            mark_raw=value.get("mark_raw"),
+        )
     if kind == "table":
         return AnswerTable(
-            rows=[[str(cell) for cell in row] for row in value.get("rows", [])]
+            rows=[[str(cell) for cell in row] for row in value.get("rows", [])],
+            marks=_to_dec(value.get("marks")),
+            mark_raw=value.get("mark_raw"),
         )
     if kind == "image":
         return AnswerImage(
-            local_id=str(value.get("local_id", "")), mime_type=value.get("mime_type")
+            local_id=str(value.get("local_id", "")),
+            mime_type=value.get("mime_type"),
+            marks=_to_dec(value.get("marks")),
+            mark_raw=value.get("mark_raw"),
         )
     return UnsupportedAnswerContent(reason=str(value.get("reason", kind or "unknown")))
 

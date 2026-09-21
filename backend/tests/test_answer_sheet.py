@@ -7,11 +7,14 @@ from app.exam.extraction.answer_sheet import (
     AnswerParagraph,
     AnswerTable,
     _build_tree,
+    compute_warnings,
     extract_answer_sheet,
     leading_labels,
     parse_marks,
     parse_mcq,
     parse_question_table,
+    sheet_from_dict,
+    sheet_to_dict,
     strip_marks,
 )
 from app.exam.parsing.blocks import BlockKind, DocumentBlock, ParseResult, SourceReference
@@ -56,6 +59,73 @@ def test_strip_marks_preserves_time() -> None:
     assert strip_marks("水作為溶劑。(其中一項，1)") == "水作為溶劑。"
 
 
+# --- content-level marking points (RED: additive AnswerContent marks) --------
+
+
+def test_text_two_marking_points_become_two_paragraphs_with_marks() -> None:
+    blocks = [
+        _text("乙部　　結構題 (50分)", 0),
+        _text("Q1. (a) 二氧化碳 (1分)", 1),
+        _text("尿素 (1分)", 2),
+    ]
+    sheet = extract_answer_sheet(ParseResult(blocks=blocks, source_name="a.doc", format="docx"))
+    leaf = sheet.sections[0].questions[0].children[0]
+    paras = [c for c in leaf.answer_content if isinstance(c, AnswerParagraph)]
+    assert [(p.text, p.marks) for p in paras] == [
+        ("二氧化碳", Decimal("1")),
+        ("尿素", Decimal("1")),
+    ]
+    assert [(p.text, p.mark_raw) for p in paras] == [
+        ("二氧化碳", "(1分)"),
+        ("尿素", "(1分)"),
+    ]
+    # effective leaf total = sum of content-level marks
+    assert leaf.effective_marks() == Decimal("2")
+
+
+def test_text_nested_sub_sub_marking_points_retained() -> None:
+    blocks = [
+        _text("乙部　　結構題 (50分)", 0),
+        _text("Q1. (b) (ii) statement one (1分)", 1),
+        _text("statement two (1分)", 2),
+    ]
+    sheet = extract_answer_sheet(ParseResult(blocks=blocks, source_name="a.doc", format="docx"))
+    leaf = sheet.sections[0].questions[0].children[0].children[0]
+    paras = [c for c in leaf.answer_content if isinstance(c, AnswerParagraph)]
+    assert [(p.text, p.marks) for p in paras] == [
+        ("statement one", Decimal("1")),
+        ("statement two", Decimal("1")),
+    ]
+
+
+def test_multiply_token_preserves_raw_notation() -> None:
+    blocks = [
+        _text("乙部　　結構題 (50分)", 0),
+        _text("Q1. (a) 構造對比 (1分)x3", 1),
+    ]
+    sheet = extract_answer_sheet(ParseResult(blocks=blocks, source_name="a.doc", format="docx"))
+    leaf = sheet.sections[0].questions[0].children[0]
+    paras = [c for c in leaf.answer_content if isinstance(c, AnswerParagraph)]
+    assert paras[0].mark_raw == "(1分)x3"
+    assert paras[0].marks == Decimal("3")
+    assert leaf.effective_marks() == Decimal("3")
+
+
+def test_table_same_path_rows_do_not_overwrite_marks() -> None:
+    rows = [
+        ["Q1.", "(a)", "", "睾丸", "(1分)"],
+        ["", "", "", "肝", "(1分)"],
+    ]
+    q_label, leaves = parse_question_table(_table(rows, 0))
+    tree = _build_tree(q_label, leaves)
+    leaf = tree.children[0]
+    # two content rows, each with its own 1 mark -> no silent overwrite
+    marked = [c for c in leaf.answer_content if getattr(c, "marks", None) is not None]
+    assert len(marked) == 2
+    assert all(c.marks == Decimal("1") for c in marked)  # type: ignore[attr-defined]
+    assert leaf.effective_marks() == Decimal("2")
+
+
 # --- labels ------------------------------------------------------------------
 
 
@@ -84,6 +154,25 @@ def test_parse_mcq_non_mcq_returns_none() -> None:
     assert parse_mcq(_table([["Q1.", "(a)", "", "內容", "(1分)"]], 0)) is None
 
 
+def test_mcq_grid_preserves_exact_order_and_content() -> None:
+    # Word UAT flagged possible MCQ reordering: assert the FULL ordered list
+    # survives source grid -> extraction (row-major reading order).
+    rows = [["題號", "答案", "題號", "答案"]] + [
+        [str(n), "ABCD"[n % 4], str(n + 15), "ABCD"[(n + 15) % 4]] for n in range(1, 16)
+    ]
+    mcq = parse_mcq(_table(rows, 0))
+    assert mcq is not None
+    assert len(mcq) == 30
+    # Reading order interleaves column pairs row by row: (1,16),(2,17)…
+    assert mcq[0] == ("1", "B")
+    assert mcq[1] == ("16", "A")
+    assert mcq[28] == ("15", "D")
+    assert mcq[29] == ("30", "C")
+    # question numbers strictly 1..30, no duplicates
+    numbers = [n for n, _ in mcq]
+    assert sorted(numbers, key=int) == [str(i) for i in range(1, 31)]
+
+
 # --- table format ------------------------------------------------------------
 
 
@@ -97,10 +186,34 @@ def test_parse_question_table_forward_fill() -> None:
     q_label, leaves = parse_question_table(_table(rows, 0))
     assert q_label == "Q1."
     assert leaves == [
-        (["(a)"], ["睾丸"], [AnswerParagraph("睾丸")], Decimal("1"), False),
-        (["(b)"], ["X：46條"], [AnswerParagraph("X：46條")], Decimal("2"), False),
-        (["(c)", "(i)"], ["種子散播"], [AnswerParagraph("種子散播")], Decimal("1"), False),
-        (["(c)", "(ii)"], ["避免擠迫"], [AnswerParagraph("避免擠迫")], Decimal("1"), False),
+        (
+            ["(a)"],
+            ["睾丸"],
+            [AnswerParagraph("睾丸", Decimal("1"), "(1分)")],
+            Decimal("1"),
+            False,
+        ),
+        (
+            ["(b)"],
+            ["X：46條"],
+            [AnswerParagraph("X：46條", Decimal("2"), "(2分)")],
+            Decimal("2"),
+            False,
+        ),
+        (
+            ["(c)", "(i)"],
+            ["種子散播"],
+            [AnswerParagraph("種子散播", Decimal("1"), "(1分)")],
+            Decimal("1"),
+            False,
+        ),
+        (
+            ["(c)", "(ii)"],
+            ["避免擠迫"],
+            [AnswerParagraph("避免擠迫", Decimal("1"), "(1分)")],
+            Decimal("1"),
+            False,
+        ),
     ]
     tree = _build_tree(q_label, leaves)
     assert tree.label == "Q1."
@@ -116,9 +229,9 @@ def test_question_table_multiline_cell_preserved() -> None:
     q_label, leaves = parse_question_table(_table(rows, 0))
     assert leaves[0][1] == ["花瓣 細小", "柱頭 呈羽狀", "雄蕊 懸垂"]
     assert leaves[0][2] == [
-        AnswerParagraph("花瓣 細小"),
-        AnswerParagraph("柱頭 呈羽狀"),
-        AnswerParagraph("雄蕊 懸垂"),
+        AnswerParagraph("花瓣 細小", Decimal("1"), "(1分)x3"),
+        AnswerParagraph("柱頭 呈羽狀", Decimal("1"), "(1分)x3"),
+        AnswerParagraph("雄蕊 懸垂", Decimal("1"), "(1分)x3"),
     ]
     assert leaves[0][3] == Decimal("3")
 
@@ -236,7 +349,100 @@ def test_section_standalone_non_text() -> None:
     assert sec.questions[0].has_non_text_content is False  # the node itself is clean
 
 
-# --- end-to-end --------------------------------------------------------------
+# --- marks invariant + serialization (RED) ------------------------------------
+
+
+def test_legacy_json_without_block_marks_uses_node_marks() -> None:
+    # legacy persisted sheet: content blocks carry no marks; node.marks=2
+    legacy = {
+        "title": "t",
+        "sections": [
+            {
+                "title": "乙部",
+                "declared_total": "2",
+                "questions": [
+                    {
+                        "label": "Q1",
+                        "answer": ["二氧化碳", "尿素"],
+                        "answer_content": [
+                            {"kind": "paragraph", "text": "二氧化碳"},
+                            {"kind": "paragraph", "text": "尿素"},
+                        ],
+                        "marks": "2",
+                        "children": [],
+                    }
+                ],
+            }
+        ],
+    }
+    sheet = sheet_from_dict(legacy)
+    leaf = sheet.sections[0].questions[0]
+    assert leaf.effective_marks() == Decimal("2")  # fallback to legacy node.marks
+    assert leaf.total() == Decimal("2")
+    assert compute_warnings(sheet) is None
+    assert not any(w.code == "marking_point_total_mismatch" for w in sheet.warnings)
+
+
+def test_mismatch_between_block_marks_and_node_marks_warns() -> None:
+    legacy = {
+        "title": "",
+        "sections": [
+            {
+                "title": "乙部",
+                "questions": [
+                    {
+                        "label": "Q1",
+                        "answer_content": [
+                            {
+                                "kind": "paragraph",
+                                "text": "二氧化碳",
+                                "marks": "1",
+                                "mark_raw": "(1分)",
+                            },
+                            {
+                                "kind": "paragraph",
+                                "text": "尿素",
+                                "marks": "1",
+                                "mark_raw": "(1分)",
+                            },
+                        ],
+                        "marks": "3",
+                        "children": [],
+                    }
+                ],
+            }
+        ],
+    }
+    sheet = sheet_from_dict(legacy)
+    leaf = sheet.sections[0].questions[0]
+    assert leaf.effective_marks() == Decimal("2")
+    assert leaf.marks == Decimal("3")
+    compute_warnings(sheet)
+    w = next(w for w in sheet.warnings if w.code == "marking_point_total_mismatch")
+    assert w.declared == Decimal("2")  # content-level sum
+    assert w.computed == Decimal("3")  # legacy node.marks — never silently corrected
+
+
+def test_round_trip_preserves_content_marks_and_raw() -> None:
+    blocks = [
+        _text("乙部　　結構題 (50分)", 0),
+        _text("Q1. (a) 二氧化碳 (1分)", 1),
+        _text("尿素 (1分)", 2),
+        _text("Q2. (a) 構造對比 (1分)x3", 3),
+    ]
+    sheet = extract_answer_sheet(ParseResult(blocks=blocks, source_name="a.doc", format="docx"))
+    restored = sheet_from_dict(sheet_to_dict(sheet))
+    original = sheet.sections[0].questions[0].children[0].answer_content
+    restored_content = restored.sections[0].questions[0].children[0].answer_content
+    assert original == restored_content
+    assert isinstance(restored_content[0], AnswerParagraph)
+    assert isinstance(restored_content[1], AnswerParagraph)
+    assert restored_content[0].mark_raw == "(1分)"
+    assert restored_content[1].marks == Decimal("1")
+    q2_content = restored.sections[0].questions[1].children[0].answer_content[0]
+    assert isinstance(q2_content, AnswerParagraph)
+    assert q2_content.mark_raw == "(1分)x3"
+    assert q2_content.marks == Decimal("3")
 
 
 def test_extract_answer_sheet_table_format() -> None:
