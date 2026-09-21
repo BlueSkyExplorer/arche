@@ -6,6 +6,8 @@ evidence so absent or low-confidence document metadata is never invented.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import re
 from dataclasses import dataclass, field
 from io import BytesIO
@@ -16,6 +18,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.shared import Length
 
+from app.document.ooxml.layout_blueprints import source_layout_blueprint
 from app.schemas.template_profile import AnswerSheetLayoutConfig, TemplateProfileImportDraft
 
 A4_WIDTH_MM = 210.0
@@ -185,12 +188,16 @@ class TemplateImportDraft:
     evidence: dict[str, list[dict[str, str]]] = field(default_factory=dict)
     defaults_used: list[str] = field(default_factory=list)
     needs_review: bool = False
+    source_docx_sha256: str = ""
+    source_docx_base64: str = ""
+    layout_blueprint: dict[str, Any] = field(default_factory=dict)
 
 
 def import_template_docx(data: bytes) -> TemplateImportDraft:
     if not data:
         raise ValueError("empty DOCX data")
     doc = Document(BytesIO(data))
+    blueprint = source_layout_blueprint(doc)
     section = doc.sections[0]
     normal = doc.styles["Normal"]
 
@@ -341,4 +348,7 @@ def import_template_docx(data: bytes) -> TemplateImportDraft:
         },
         defaults_used=layout_defaults,
         needs_review=bool(unmapped),
+        source_docx_sha256=hashlib.sha256(data).hexdigest(),
+        source_docx_base64=base64.b64encode(data).decode("ascii"),
+        layout_blueprint=blueprint,
     )

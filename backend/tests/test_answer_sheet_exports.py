@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import io
 import zipfile
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -11,7 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.storage import LocalDirStorage
-from app.models import ExamImport, Workspace
+from app.models import ExamImport, TemplateProfile, Workspace
 from tests.conftest import switch_workspace
 
 PNG = (
@@ -241,6 +244,42 @@ def test_completed_answer_sheet_preview_and_export_are_lossless(
         assert package.testzip() is None
         assert any(name.startswith("word/media/") for name in package.namelist())
         assert b"relationships/image" in package.read("word/_rels/document.xml.rels")
+
+
+
+
+@pytest.mark.db
+def test_imported_template_source_artifact_is_private_and_export_snapshot_is_auditable(
+    api_client: TestClient, db_session: Session, template_payload: dict[str, Any]
+) -> None:
+    source = (Path(__file__).parent / "fixtures" / "school_format.docx").read_bytes()
+    digest = hashlib.sha256(source).hexdigest()
+    template_payload["source_docx_base64"] = base64.b64encode(source).decode("ascii")
+    template_payload["ooxml_layout_blueprint_json"] = {"schema_version": 1}
+
+    response = api_client.post("/api/v1/templates", json=template_payload)
+    assert response.status_code == 201, response.text
+    public_template = response.json()
+    assert public_template["source_docx_sha256"] == digest
+    assert "source_docx_storage_key" not in public_template
+
+    stored = db_session.get(TemplateProfile, public_template["id"])
+    assert stored is not None
+    expected_key = f"{api_client.workspace_id}/template-sources/{digest}.docx"
+    assert stored.source_docx_storage_key == expected_key
+    storage = LocalDirStorage(api_client.test_settings.storage_local_dir)
+    assert storage.get(stored.source_docx_storage_key) == source
+
+    item = _completed_import(api_client, db_session)
+    preview = api_client.post(
+        f"/api/v1/exam-imports/{item.id}/answer-sheet-preview",
+        json=_metadata(public_template["id"]),
+    )
+    assert preview.status_code == 200, preview.text
+    snapshot = preview.json()["record"]["template_config_snapshot"]
+    assert snapshot["source_docx_sha256"] == digest
+    assert snapshot["ooxml_layout_blueprint_json"] == {"schema_version": 1}
+    assert snapshot["source_docx_storage_key"] == stored.source_docx_storage_key
 
 
 @pytest.mark.db

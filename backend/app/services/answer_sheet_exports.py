@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Literal
 from uuid import UUID
@@ -51,6 +52,9 @@ def _template_snapshot(template: TemplateProfile) -> dict[str, object]:
         "name": template.name,
         "version": template.version,
         "logo_asset_id": str(template.logo_asset_id) if template.logo_asset_id else None,
+        "source_docx_storage_key": template.source_docx_storage_key,
+        "source_docx_sha256": template.source_docx_sha256,
+        "ooxml_layout_blueprint_json": template.ooxml_layout_blueprint_json,
         "config": config.model_dump(mode="json"),
     }
 
@@ -103,10 +107,47 @@ def create_answer_sheet_export(
             continue
 
     config = TemplateProfileConfig.model_validate(template_snapshot["config"])
+    source_docx: bytes | None = None
+    source_key = template_snapshot.get("source_docx_storage_key")
+    source_digest = template_snapshot.get("source_docx_sha256")
+    source_required = isinstance(source_key, str) or isinstance(source_digest, str)
+    if isinstance(source_key, str) and isinstance(source_digest, str):
+        try:
+            candidate = storage.get(source_key)
+        except FileNotFoundError:
+            candidate = b""
+        if hashlib.sha256(candidate).hexdigest() == source_digest:
+            source_docx = candidate
+    if source_required and source_docx is None:
+        record.status = "blocked"
+        record.error_message = "Immutable template source artifact is unavailable"
+        record.validation_json = {
+            "valid": False,
+            "blocking_count": 1,
+            "issues": [
+                {
+                    "code": "template_source_unavailable",
+                    "severity": "blocking",
+                    "message": "Immutable template source artifact is unavailable.",
+                    "path": "template",
+                }
+            ],
+            "stats": {},
+        }
+        db.commit()
+        db.refresh(record)
+        return record
+
+    snapshot_blueprint = template_snapshot.get("ooxml_layout_blueprint_json", {})
+    if not isinstance(snapshot_blueprint, dict):
+        snapshot_blueprint = {}
+
     profile = RenderTemplateProfile(
         school_name="",
         logo_asset_id=template.logo_asset_id,
         config=config,
+        layout_blueprint=snapshot_blueprint,
+        source_docx=source_docx,
     )
 
     def resolve_logo(asset_id: UUID) -> bytes:

@@ -106,7 +106,10 @@ export function templatePayload(v: TemplateFormValues) { return {
   },
   role_styles: { SectionHeading: { size_pt: v.sectionFontSize, bold: v.sectionBold, alignment: v.sectionAlignment } },
 }; }
-export function createTemplate(token: string, v: TemplateFormValues) { return apiFetch<TemplateProfile>("/api/v1/templates", token, { method: "POST", body: JSON.stringify(templatePayload(v)) }); }
+export function createTemplate(token: string, v: TemplateFormValues, imported?: Pick<TemplateImportResult, "source_docx_base64" | "layout_blueprint">) {
+  const payload = { ...templatePayload(v), ...(imported ? { source_docx_base64: imported.source_docx_base64, ooxml_layout_blueprint_json: imported.layout_blueprint } : {}) };
+  return apiFetch<TemplateProfile>("/api/v1/templates", token, { method: "POST", body: JSON.stringify(payload) });
+}
 export function updateTemplate(token: string, id: string, v: TemplateFormValues) { return apiFetch<TemplateProfile>(`/api/v1/templates/${encodeURIComponent(id)}`, token, { method: "PATCH", body: JSON.stringify(templatePayload(v)) }); }
 export function uploadLogo(token: string, file: File) { const body = new FormData(); body.set("kind", "logo"); body.set("file", file); return apiFetch<{ id: string }>("/api/v1/assets", token, { method: "POST", body }); }
 
@@ -117,6 +120,9 @@ export type TemplateImportResult = {
   detected_fields: Record<string, { value?: string | null; candidate?: string | null; confidence: number; review_required: boolean; source?: string | null }>;
   evidence: Record<string, { location: string; text: string }[]>;
   defaults_used: string[];
+  source_docx_sha256: string;
+  source_docx_base64: string;
+  layout_blueprint: Record<string, unknown>;
 };
 
 export function importTemplate(token: string, file: File): Promise<TemplateImportResult> {

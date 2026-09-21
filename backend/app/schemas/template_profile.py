@@ -148,6 +148,8 @@ class TemplateProfileRead(TemplateProfileConfig):
     version: int
     school_name: str
     logo_asset_id: UUID | None
+    source_docx_sha256: str | None = None
+    ooxml_layout_blueprint_json: dict[str, object] = Field(default_factory=dict)
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -157,6 +159,10 @@ class TemplateProfileCreate(TemplateProfileConfig):
     name: str = Field(min_length=1, max_length=255)
     school_name: str = Field(min_length=1, max_length=255)
     logo_asset_id: UUID | None = None
+    # Set only by the format-import flow. Raw OOXML is persisted in private
+    # storage; JSON keeps only a content-free blueprint plus SHA-256.
+    source_docx_base64: str | None = None
+    ooxml_layout_blueprint_json: dict[str, object] = Field(default_factory=dict)
     is_active: bool = True
 
 

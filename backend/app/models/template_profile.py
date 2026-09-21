@@ -26,4 +26,7 @@ class TemplateProfile(TimestampMixin, Base):
     question_style_config_json: Mapped[dict[str, Any]] = mapped_column(JSONB)
     answer_sheet_layout_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     role_styles: Mapped[dict[str, Any]] = mapped_column("role_styles_json", JSONB, default=dict)
+    source_docx_storage_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    source_docx_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ooxml_layout_blueprint_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

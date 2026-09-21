@@ -1,3 +1,5 @@
+import base64
+import hashlib
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -5,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentUser
+from app.core.storage import StorageBackend
 from app.models import Asset, TemplateProfile
 from app.schemas.template_profile import TemplateProfileCreate, TemplateProfilePatch
 from app.services.authorization import assert_workspace_access
@@ -36,9 +39,29 @@ def _check_logo(db: Session, logo_id: UUID | None, user: CurrentUser) -> None:
         raise HTTPException(404, "Logo asset not found")
 
 
-def create_template(db: Session, user: CurrentUser, data: TemplateProfileCreate) -> TemplateProfile:
+def create_template(
+    db: Session,
+    user: CurrentUser,
+    data: TemplateProfileCreate,
+    storage: StorageBackend | None = None,
+) -> TemplateProfile:
     _check_logo(db, data.logo_asset_id, user)
-    values = data.model_dump(mode="json")
+    values = data.model_dump(mode="json", exclude={"source_docx_base64"})
+    source = data.source_docx_base64
+    if source is not None:
+        if storage is None:
+            raise HTTPException(500, "Template source storage is unavailable")
+        try:
+            source_bytes = base64.b64decode(source, validate=True)
+        except ValueError as exc:
+            raise HTTPException(422, "Invalid source DOCX encoding") from exc
+        if not source_bytes.startswith(b"PK"):
+            raise HTTPException(422, "Imported source must be a DOCX package")
+        digest = hashlib.sha256(source_bytes).hexdigest()
+        key = f"{user.workspace_id}/template-sources/{digest}.docx"
+        storage.put(key, source_bytes)
+        values["source_docx_storage_key"] = key
+        values["source_docx_sha256"] = digest
     template = TemplateProfile(workspace_id=user.workspace_id, version=1, **values)
     db.add(template)
     db.commit()
