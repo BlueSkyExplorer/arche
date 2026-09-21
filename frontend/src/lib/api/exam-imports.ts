@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiDownload, apiFetch } from "./client";
 
 export type ValidationIssue = {
   code: string;
@@ -68,6 +68,8 @@ export type ExamImportSummary = {
   failure_message: string | null;
   validation_json: { issues: ValidationIssue[] } | null;
   warning_count: number;
+  original_warning_count: number;
+  current_warning_count: number;
   created_at: string;
   updated_at: string;
 };
@@ -75,10 +77,17 @@ export type ExamImportSummary = {
 export type AnsNode = {
   label?: string | null;
   answer?: string[];
+  answer_content?: AnswerContent[];
   marks?: string | number | null;
   children?: AnsNode[];
   has_non_text_content?: boolean;
 };
+
+export type AnswerContent =
+  | { kind: "paragraph"; text: string }
+  | { kind: "table"; rows: string[][] }
+  | { kind: "image"; local_id: string; mime_type?: string | null }
+  | { kind: "unsupported"; reason: string };
 
 export type AnsSection = {
   title: string;
@@ -153,6 +162,9 @@ export function approveImport(token: string, id: string): Promise<ExamImportDeta
   });
 }
 
-export function importAssetUrl(id: string, localId: string): string {
-  return `/api/v1/exam-imports/${encodeURIComponent(id)}/assets/${encodeURIComponent(localId)}`;
+export function fetchImportAsset(token: string, id: string, localId: string): Promise<Blob> {
+  return apiDownload(
+    `/api/v1/exam-imports/${encodeURIComponent(id)}/assets/${encodeURIComponent(localId)}`,
+    token,
+  );
 }

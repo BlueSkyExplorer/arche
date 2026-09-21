@@ -6,6 +6,7 @@ import { FileUp, RefreshCw, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api/client";
 import { createExamImport, listExamImports, type ExamImportSummary } from "@/lib/api/exam-imports";
+import { canFormatAnswerSheet } from "@/lib/answer-sheet-format";
 
 const STATUS_LABEL: Record<string, string> = {
   uploaded: "Uploaded / 已上傳",
@@ -156,13 +157,13 @@ export default function ImportsPage({ token }: { token: string }) {
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {imp.import_type === "answer_sheet"
-                    ? `${imp.warning_count} warning${imp.warning_count === 1 ? "" : "s"}`
+                    ? `${imp.current_warning_count} current warning${imp.current_warning_count === 1 ? "" : "s"} · ${imp.original_warning_count} original`
                     : `${issueCount(imp)} issue${issueCount(imp) === 1 ? "" : "s"}`}
                   {imp.failure_message ? ` · ${imp.failure_message}` : ""}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                {imp.status === "needs_review" || imp.status === "ready" ? (
+                {imp.status === "needs_review" || imp.status === "ready" || imp.status === "completed" ? (
                   <Button asChild variant="outline">
                     <Link href={`/imports/${imp.id}`}>
                       <Eye className="size-4" /> Review
@@ -171,6 +172,11 @@ export default function ImportsPage({ token }: { token: string }) {
                 ) : (
                   <Button asChild variant="outline">
                     <Link href={`/imports/${imp.id}`}>View</Link>
+                  </Button>
+                )}
+                {canFormatAnswerSheet(imp) && (
+                  <Button asChild>
+                    <Link href={`/imports/${imp.id}/format`}>Format / 套用格式</Link>
                   </Button>
                 )}
               </div>

@@ -27,6 +27,24 @@ export const templateFormSchema = z.object({
   spacingBeforeQuestion: boundedNumber(0, 50, "Spacing must be 0–50 pt"),
   spacingAfterQuestion: boundedNumber(0, 50, "Spacing must be 0–50 pt"),
   answerSpaceLines: z.number().int().min(0).max(20),
+  metadataLinesText: z.string().refine(
+    value => value.split("\n").some(line => line.trim()),
+    "At least one metadata line is required",
+  ),
+  mcqColumns: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  mcqBorders: z.boolean(),
+  mcqQuestionWidth: boundedNumber(1, 40, "MCQ question width must be 1–40 mm"),
+  mcqAnswerWidth: boundedNumber(1, 50, "MCQ answer width must be 1–50 mm"),
+  mcqAlignment: z.enum(["left", "center", "right"]),
+  mcqFontSize: boundedNumber(6, 24, "MCQ font size must be 6–24 pt"),
+  mcqRowHeight: boundedNumber(3, 20, "MCQ row height must be 3–20 mm"),
+  hierarchyIndent: boundedNumber(0, 25, "Hierarchy indent must be 0–25 mm"),
+  showParentTotals: z.boolean(),
+  imageMaxWidth: boundedNumber(1, 180, "Image width must be 1–180 mm"),
+  answerTableBorders: z.boolean(),
+  answerTableAlignment: z.enum(["left", "center", "right"]),
+  answerTableFontSize: boundedNumber(6, 24, "Answer-table font size must be 6–24 pt"),
+  repeatTableHeader: z.boolean(),
 });
 export type TemplateFormValues = z.infer<typeof templateFormSchema>;
 
@@ -38,4 +56,10 @@ export const templateDefaults: TemplateFormValues = {
   sectionBold: true, sectionAlignment: "left", questionNumberStyle: "arabic-dot",
   subQuestionStyle: "lower-alpha", subSubQuestionStyle: "roman", marksDisplayStyle: "right", marksFormat: "({marks} marks)",
   spacingBeforeQuestion: 2, spacingAfterQuestion: 2, answerSpaceLines: 3,
+  metadataLinesText: "{{school_name}}\n{{academic_year}} {{exam_name}}\n{{level}} {{subject}} ({{document_type}})",
+  mcqColumns: 2, mcqBorders: true, mcqQuestionWidth: 14, mcqAnswerWidth: 18,
+  mcqAlignment: "center", mcqFontSize: 11, mcqRowHeight: 7,
+  hierarchyIndent: 7, showParentTotals: true, imageMaxWidth: 120,
+  answerTableBorders: true, answerTableAlignment: "left", answerTableFontSize: 10,
+  repeatTableHeader: true,
 };

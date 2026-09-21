@@ -265,6 +265,11 @@ POST   /api/v1/papers/{id}/sections
 POST   /api/v1/papers/{id}/export?format=docx
 POST   /api/v1/papers/{id}/export?format=pdf
 
+POST   /api/v1/exam-imports/{id}/answer-sheet-preview
+POST   /api/v1/exam-imports/{id}/answer-sheet-exports
+GET    /api/v1/answer-sheet-exports/{id}
+GET    /api/v1/answer-sheet-exports/{id}/download
+
 POST   /api/v1/assets
 GET    /api/v1/exports/{id}
 ```
@@ -345,6 +350,29 @@ Use XML-level helpers only when necessary for:
 Keep these helpers isolated under `backend/app/document/ooxml/` and test them with fixtures.
 
 Uploaded source documents are accepted as `.docx` or legacy `.doc`; `.doc` files are first converted to `.docx` by headless LibreOffice (`app/services/doc_convert.py`, reusing the `LIBREOFFICE_BIN` setting and the same invocation shape as PDF conversion). Macro-enabled `.docm` is rejected.
+
+Completed answer sheets use a parallel domain entry point but the same renderer,
+OOXML, storage, template-validation, and authorization infrastructure. Their
+semantic source is the reviewed AnsSheet snapshot, not Question Library or
+Paper. See ADR-0010.
+
+### Legacy `.doc` diagram dependency (answer sheets)
+
+Answer-sheet images are preserved losslessly, never OCR'd:
+
+- A `.docx` with relationship-backed inline images needs no extra runtime — the
+  DOCX parser captures them via existing `asset_manifest`/`cell_assets` paths.
+- A legacy `.doc` whose diagrams arrive as grouped Word drawings after the
+  LibreOffice conversion is rasterized to PNG through LibreOffice's UNO
+  `GraphicExportFilter` (`app/services/docx_shapes.py`). This requires, in the
+  backend container: `LIBREOFFICE_BIN` (soffice) **and**
+  `LIBREOFFICE_PYTHON_BIN` pointing at the LibreOffice-bundled UNO-capable
+  Python (e.g. `<lo>/program/python`). No OCR or interpretation is involved.
+- If that runtime is absent or the drawing count is ambiguous, the import still
+  succeeds but each unresolved drawing is recorded as an `UnsupportedAnswerContent`
+  block, which **blocks export** with a `unsupported_answer_content` validation
+  issue — a missing/ambiguous image is never silently dropped, and never
+  replaced with inferred content.
 
 ## 10. PDF Strategy
 

@@ -8,6 +8,7 @@ const fixturePath = path.resolve("../backend/tests/fixtures/school_format.docx")
 test.describe.serial("two-document import + ingest", () => {
   test("import a format DOCX into a template, review and save", async ({ page }) => {
     await page.goto("/templates");
+    await expect(page.getByLabel("Format template only / 只匯入格式")).toBeChecked();
     await page.getByLabel("Import DOCX file").setInputFiles(fixturePath);
 
     // Review banner appears; mapped values land in the form.
@@ -15,6 +16,7 @@ test.describe.serial("two-document import + ingest", () => {
     await expect(dialog.getByText(/已從 DOCX 匯入/)).toBeVisible();
     await expect(dialog.getByLabel("School name / 學校名稱")).toHaveValue("ST. MARY'S COLLEGE");
     await expect(dialog.getByLabel("Chinese font / 中文字體")).toHaveValue("Noto Sans CJK");
+    await expect(dialog.getByText(/No questions detected/)).toHaveCount(0);
 
     // Teacher supplies the template name, then saves.
     await dialog.getByLabel("Template name / 範本名稱").fill(templateName);

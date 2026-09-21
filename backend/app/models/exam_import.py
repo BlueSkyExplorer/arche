@@ -96,7 +96,17 @@ class ExamImport(TimestampMixin, Base):
 
     @property
     def warning_count(self) -> int:
-        """Answer-sheet warning count (0 for question papers)."""
+        """Current reviewed warning count, retained for API compatibility."""
+        return self.current_warning_count
+
+    @property
+    def original_warning_count(self) -> int:
         if self.import_type != "answer_sheet" or not self.answer_sheet_json:
             return 0
         return len(self.answer_sheet_json.get("warnings", []))
+
+    @property
+    def current_warning_count(self) -> int:
+        if self.import_type != "answer_sheet" or not self.reviewed_answer_sheet_json:
+            return 0
+        return len(self.reviewed_answer_sheet_json.get("warnings", []))

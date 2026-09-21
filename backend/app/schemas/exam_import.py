@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import ConfigDict
@@ -16,7 +16,7 @@ class ExamImportSummary(OrmReadModel):
     workspace_id: UUID
     source_filename: str
     source_type: str
-    import_type: str
+    import_type: Literal["question_paper", "answer_sheet"]
     status: str
     extractor_name: str | None
     provider: str | None
@@ -26,6 +26,8 @@ class ExamImportSummary(OrmReadModel):
     failure_message: str | None
     validation_json: dict[str, Any] | None
     warning_count: int = 0
+    original_warning_count: int = 0
+    current_warning_count: int = 0
     created_at: datetime
     updated_at: datetime
 

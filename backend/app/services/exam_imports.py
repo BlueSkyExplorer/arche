@@ -9,7 +9,7 @@ the reviewed document into Question Library questions.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -35,9 +35,10 @@ from app.models import ExamImport, Question
 from app.models.exam_import import can_transition
 from app.schemas.question import QuestionCreate, QuestionIngestDraft
 from app.services.ai_client import AIClient
-from app.services.assets import create_asset_from_bytes
+from app.services.assets import create_asset_from_bytes, sniff_mime
 from app.services.authorization import assert_workspace_access
 from app.services.doc_convert import DocConversionError, convert_doc_to_docx
+from app.services.docx_shapes import ShapeRasterizationError, attach_group_shape_assets
 
 
 def _now() -> datetime:
@@ -113,7 +114,7 @@ def create_import(
     settings: Settings,
     filename: str,
     data: bytes,
-    import_type: str = "question_paper",
+    import_type: Literal["question_paper", "answer_sheet"] = "question_paper",
 ) -> ExamImport:
     source_type, data = _normalize_source(data, filename, settings)
 
@@ -134,13 +135,23 @@ def create_import(
     try:
         _set_status(imp, "parsing")
         parsed = parse_document(data, filename=filename)
+        if import_type == "answer_sheet":
+            try:
+                attach_group_shape_assets(parsed, data, settings)
+            except ShapeRasterizationError as exc:
+                # The typed extractor will retain an unsupported block for each
+                # unresolved drawing, which later blocks lossy export.
+                parsed.warnings.append(f"grouped drawings need review: {exc}")
 
         # persist referenced image bytes (local_id -> storage key) for preview/approve
         asset_manifest: dict[str, dict[str, str]] = {}
         for local_id, blob in parsed.assets.items():
             key = f"exam_imports/{user.workspace_id}/{imp.id}/assets/{local_id}"
             storage.put(key, blob)
-            asset_manifest[local_id] = {"storage_key": key}
+            asset_manifest[local_id] = {
+                "storage_key": key,
+                "mime_type": sniff_mime(blob) or "application/octet-stream",
+            }
 
         imp.blocks_json = [b.model_dump(mode="json") for b in parsed.blocks]
         imp.parser_meta = {

@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.routes import (
+    answer_sheet_exports,
     assets,
     exam_imports,
     exports,
@@ -20,3 +21,4 @@ router.include_router(papers.router)
 router.include_router(assets.router)
 router.include_router(exports.router)
 router.include_router(exam_imports.router)
+router.include_router(answer_sheet_exports.router)

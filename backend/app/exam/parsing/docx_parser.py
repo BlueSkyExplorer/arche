@@ -142,6 +142,35 @@ def _table_rows(tbl_el: Any) -> tuple[list[list[str]], dict[str, str]]:
     return rows, non_text
 
 
+def _cell_content_blocks(tc: Any) -> list[dict[str, Any]]:
+    """Lossless supported content inside an answer cell.
+
+    Top-level paragraphs remain paragraphs and nested tables remain structured
+    rows.  Images/drawings are represented separately by ``cell_assets`` and
+    ``non_text_cells`` because their bytes are relationship-backed.
+    """
+    blocks: list[dict[str, Any]] = []
+    for child in tc:
+        if child.tag == qn("w:p"):
+            if _non_text_kind(child):
+                continue
+            buf: list[str] = []
+            for node in child.iter():
+                if node.tag in (qn("w:br"), qn("w:cr")):
+                    buf.append("\n")
+                elif node.tag == qn("w:tab"):
+                    buf.append("\t")
+                elif node.tag == qn("w:t"):
+                    buf.append(node.text or "")
+            value = "".join(buf).strip()
+            if value:
+                blocks.append({"kind": "paragraph", "text": value})
+        elif child.tag == qn("w:tbl"):
+            rows, _ = _table_rows(child)
+            blocks.append({"kind": "table", "rows": rows})
+    return blocks
+
+
 class DocxParser:
     name = "docx"
 
@@ -165,13 +194,27 @@ class DocxParser:
         paragraph_index = 0
         table_index = 0
         image_index = 0
+        image_refs: dict[str, AssetReference] = {}
 
-        def add_image(element: Any, doc_obj: Document) -> None:
-            nonlocal order, image_index
+        def capture_images(element: Any, doc_obj: Document) -> list[tuple[str, AssetReference]]:
+            nonlocal image_index
+            captured: list[tuple[str, AssetReference]] = []
             for rid, blob, content_type in _image_parts(element, doc_obj):
-                local_id = f"img-{image_index}"
-                image_index += 1
-                assets[local_id] = blob
+                reference = image_refs.get(rid)
+                if reference is None:
+                    local_id = f"img-{image_index}"
+                    image_index += 1
+                    assets[local_id] = blob
+                    reference = AssetReference(local_id=local_id, mime_type=content_type)
+                    image_refs[rid] = reference
+                captured.append((rid, reference))
+            return captured
+
+        def append_image_blocks(
+            captured: list[tuple[str, AssetReference]], parent_table: str | None = None
+        ) -> None:
+            nonlocal order
+            for rid, reference in captured:
                 blocks.append(
                     DocumentBlock(
                         id=f"b{order:04d}",
@@ -180,7 +223,8 @@ class DocxParser:
                         source=SourceReference(
                             file_name=source_name, element_id=f"img-{rid}"
                         ),
-                        asset=AssetReference(local_id=local_id, mime_type=content_type),
+                        asset=reference,
+                        meta={"parent_table": parent_table} if parent_table else {},
                     )
                 )
                 order += 1
@@ -209,7 +253,7 @@ class DocxParser:
                     order += 1
                     continue
                 if _blips(child):
-                    add_image(child, doc)
+                    append_image_blocks(capture_images(child, doc))
                     if text.strip():
                         blocks.append(
                             DocumentBlock(
@@ -263,7 +307,27 @@ class DocxParser:
             elif child.tag == qn("w:tbl"):
                 table_index += 1
                 rows, non_text = _table_rows(child)
-                meta = {"non_text_cells": non_text} if non_text else {}
+                meta: dict[str, Any] = {"non_text_cells": non_text} if non_text else {}
+                cell_assets: dict[str, list[dict[str, str]]] = {}
+                cell_content: dict[str, list[dict[str, Any]]] = {}
+                table_images: list[tuple[str, AssetReference]] = []
+                for row_index, row in enumerate(child.findall(qn("w:tr"))):
+                    for column_index, cell in enumerate(row.findall(qn("w:tc"))):
+                        key = f"{row_index}:{column_index}"
+                        content = _cell_content_blocks(cell)
+                        if content:
+                            cell_content[key] = content
+                        captured = capture_images(cell, doc)
+                        if captured:
+                            cell_assets[key] = [
+                                reference.model_dump(mode="json")
+                                for _, reference in captured
+                            ]
+                            table_images.extend(captured)
+                if cell_assets:
+                    meta["cell_assets"] = cell_assets
+                if cell_content:
+                    meta["cell_content"] = cell_content
                 blocks.append(
                     DocumentBlock(
                         id=f"b{order:04d}",
@@ -277,7 +341,7 @@ class DocxParser:
                     )
                 )
                 order += 1
-                add_image(child, doc)
+                append_image_blocks(table_images, f"tbl{table_index}")
 
         # Headers and footers as separate, order-continuing blocks.
         for section in doc.sections:
